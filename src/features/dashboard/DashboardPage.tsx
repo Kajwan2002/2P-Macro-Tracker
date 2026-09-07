@@ -51,7 +51,6 @@ export function DashboardPage() {
           value={profile ? totals.protein / Math.max(1, profile.proteinTarget) : 0}
           size={148}
           stroke={13}
-          color="var(--color-protein)"
         >
           <div>
             <div className="text-2xl font-extrabold text-ink">{round1(Math.max(0, proteinLeft))}</div>
