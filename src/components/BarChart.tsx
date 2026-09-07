@@ -13,6 +13,8 @@ interface BarChartProps {
   height?: number
   formatValue?: (v: number) => string
   color?: string
+  /** colour for highlighted bars (defaults to `color`) */
+  highlightColor?: string
 }
 
 export function BarChart({
@@ -20,6 +22,7 @@ export function BarChart({
   height = 130,
   formatValue,
   color = 'var(--color-accent)',
+  highlightColor,
 }: BarChartProps) {
   const max = Math.max(1, ...bars.map((b) => Math.max(b.value, b.target ?? 0)))
   const many = bars.length > 12
@@ -40,7 +43,11 @@ export function BarChart({
                 {hPct > 0 && (
                   <div
                     className="absolute inset-x-0 bottom-0 rounded-[3px]"
-                    style={{ height: `${hPct}%`, background: color, opacity: b.highlight ? 1 : 0.6 }}
+                    style={{
+                      height: `${hPct}%`,
+                      background: b.highlight ? (highlightColor ?? color) : color,
+                      opacity: b.highlight ? 1 : 0.6,
+                    }}
                   />
                 )}
                 {tPct > 0 && (

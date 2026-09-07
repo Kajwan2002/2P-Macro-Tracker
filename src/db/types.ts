@@ -54,9 +54,23 @@ export interface Meal {
   updatedAt: number
 }
 
+/* ---------------------------- quick meals ------------------------------ */
+
+/** A saved macros-only entry (no ingredients) — e.g. a sandwich from a café. */
+export interface QuickMeal {
+  id: string
+  name: string
+  kcal: number
+  protein: number
+  carbs: number
+  fat: number
+  createdAt: number
+  updatedAt: number
+}
+
 /* ------------------------------ log entries ----------------------------- */
 
-export type LogSource = 'ingredient' | 'meal' | 'quick'
+export type LogSource = 'ingredient' | 'meal' | 'quick' | 'group'
 
 /** One food eaten by one person on one day. Macros are snapshotted. */
 export interface LogEntry {

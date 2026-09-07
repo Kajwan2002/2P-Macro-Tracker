@@ -7,11 +7,12 @@ import type {
   Meal,
   MealEvent,
   Profile,
+  QuickMeal,
   Settings,
   WeightEntry,
 } from './types'
 
-const BACKUP_VERSION = 1
+const BACKUP_VERSION = 2
 
 export interface BackupFile {
   app: 'macro-tracker'
@@ -21,6 +22,7 @@ export interface BackupFile {
     profiles: Profile[]
     ingredients: Ingredient[]
     meals: Meal[]
+    quickMeals: QuickMeal[]
     logEntries: LogEntry[]
     mealEvents: MealEvent[]
     weights: WeightEntry[]
@@ -29,11 +31,12 @@ export interface BackupFile {
 }
 
 export async function buildBackup(): Promise<BackupFile> {
-  const [profiles, ingredients, meals, logEntries, mealEvents, weights, settings] =
+  const [profiles, ingredients, meals, quickMeals, logEntries, mealEvents, weights, settings] =
     await Promise.all([
       db.profiles.toArray(),
       db.ingredients.toArray(),
       db.meals.toArray(),
+      db.quickMeals.toArray(),
       db.logEntries.toArray(),
       db.mealEvents.toArray(),
       db.weights.toArray(),
@@ -43,7 +46,7 @@ export async function buildBackup(): Promise<BackupFile> {
     app: 'macro-tracker',
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    data: { profiles, ingredients, meals, logEntries, mealEvents, weights, settings },
+    data: { profiles, ingredients, meals, quickMeals, logEntries, mealEvents, weights, settings },
   }
 }
 
@@ -102,16 +105,27 @@ export async function importBackup(text: string): Promise<ImportResult> {
   }
   if (!isBackup(parsed)) throw new Error('That doesn’t look like a Macro Tracker backup.')
 
-  const { profiles, ingredients, meals, logEntries, mealEvents, weights, settings } = parsed.data
+  const { profiles, ingredients, meals, quickMeals, logEntries, mealEvents, weights, settings } =
+    parsed.data
 
   await db.transaction(
     'rw',
-    [db.profiles, db.ingredients, db.meals, db.logEntries, db.mealEvents, db.weights, db.settings],
+    [
+      db.profiles,
+      db.ingredients,
+      db.meals,
+      db.quickMeals,
+      db.logEntries,
+      db.mealEvents,
+      db.weights,
+      db.settings,
+    ],
     async () => {
       await Promise.all([
         db.profiles.clear(),
         db.ingredients.clear(),
         db.meals.clear(),
+        db.quickMeals.clear(),
         db.logEntries.clear(),
         db.mealEvents.clear(),
         db.weights.clear(),
@@ -120,6 +134,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
       if (profiles?.length) await db.profiles.bulkAdd(profiles)
       if (ingredients?.length) await db.ingredients.bulkAdd(ingredients)
       if (meals?.length) await db.meals.bulkAdd(meals)
+      if (quickMeals?.length) await db.quickMeals.bulkAdd(quickMeals)
       if (logEntries?.length) await db.logEntries.bulkAdd(logEntries)
       if (mealEvents?.length) await db.mealEvents.bulkAdd(mealEvents)
       if (weights?.length) await db.weights.bulkAdd(weights)
@@ -138,12 +153,22 @@ export async function importBackup(text: string): Promise<ImportResult> {
 export async function wipeAll(): Promise<void> {
   await db.transaction(
     'rw',
-    [db.profiles, db.ingredients, db.meals, db.logEntries, db.mealEvents, db.weights, db.settings],
+    [
+      db.profiles,
+      db.ingredients,
+      db.meals,
+      db.quickMeals,
+      db.logEntries,
+      db.mealEvents,
+      db.weights,
+      db.settings,
+    ],
     async () => {
       await Promise.all([
         db.profiles.clear(),
         db.ingredients.clear(),
         db.meals.clear(),
+        db.quickMeals.clear(),
         db.logEntries.clear(),
         db.mealEvents.clear(),
         db.weights.clear(),

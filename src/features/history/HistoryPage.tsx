@@ -72,6 +72,7 @@ export function HistoryPage() {
         <BarChart
           height={110}
           color="var(--color-protein)"
+          highlightColor="var(--color-accent)"
           formatValue={(v) => `${round1(v)} g`}
           bars={(days ?? []).map((d) => ({
             label: range === '7' ? weekdayShort(d.date) : d.date.slice(5).replace('-', '/'),

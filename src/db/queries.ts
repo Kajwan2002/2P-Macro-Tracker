@@ -9,6 +9,7 @@ import type {
   Meal,
   MealEvent,
   Profile,
+  QuickMeal,
   Settings,
   WeightEntry,
 } from './types'
@@ -68,6 +69,15 @@ export function useMeals(): Meal[] | undefined {
 
 export function useMeal(id: string | null | undefined): Meal | undefined {
   return useLiveQuery(() => (id ? db.meals.get(id) : undefined), [id])
+}
+
+/* ----------------------------- quick meals ---------------------------- */
+
+export function useQuickMeals(): QuickMeal[] | undefined {
+  return useLiveQuery(async () => {
+    const all = await db.quickMeals.toArray()
+    return all.sort((a, b) => b.updatedAt - a.updatedAt)
+  }, [])
 }
 
 /* ------------------------------ log entries ----------------------------- */

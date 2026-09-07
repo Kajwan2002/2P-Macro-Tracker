@@ -99,6 +99,11 @@ export function DashboardPage() {
                       split
                     </span>
                   )}
+                  {e.source === 'group' && (
+                    <span className="shrink-0 rounded-full bg-surface-2 px-1.5 py-0.5 text-[0.6rem] font-bold text-ink-faint">
+                      group
+                    </span>
+                  )}
                 </div>
                 <MacroLine macros={e} className="mt-0.5" />
               </div>

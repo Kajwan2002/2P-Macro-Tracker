@@ -186,6 +186,46 @@ function cleanMeal(input: MealInput): Omit<Meal, 'id' | 'createdAt' | 'updatedAt
   }
 }
 
+/* ----------------------------- quick meals ---------------------------- */
+
+export interface QuickMealInput {
+  name: string
+  kcal: number
+  protein: number
+  carbs: number
+  fat: number
+}
+
+export async function addQuickMeal(input: QuickMealInput): Promise<string> {
+  const now = Date.now()
+  const id = newId()
+  await db.quickMeals.add({ id, ...cleanQuickMeal(input), createdAt: now, updatedAt: now })
+  return id
+}
+
+export async function updateQuickMeal(id: string, input: QuickMealInput): Promise<void> {
+  await db.quickMeals.update(id, { ...cleanQuickMeal(input), updatedAt: Date.now() })
+}
+
+export async function deleteQuickMeal(id: string): Promise<void> {
+  await db.quickMeals.delete(id)
+}
+
+/** Bump a quick meal to the top of the list after it's logged. */
+export async function touchQuickMeal(id: string): Promise<void> {
+  await db.quickMeals.update(id, { updatedAt: Date.now() })
+}
+
+function cleanQuickMeal(input: QuickMealInput) {
+  return {
+    name: input.name.trim() || 'Quick meal',
+    kcal: nonNeg(input.kcal),
+    protein: nonNeg(input.protein),
+    carbs: nonNeg(input.carbs),
+    fat: nonNeg(input.fat),
+  }
+}
+
 /* ------------------------------ log entries ----------------------------- */
 
 export interface LogEntryInput {
