@@ -1,0 +1,140 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------ *
+ * Macro Tracker — one dark theme. The accent trio (--color-accent*)
+ * is overwritten at runtime with the active profile's colour.
+ * ------------------------------------------------------------------ */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto,
+    system-ui, sans-serif;
+
+  /* surfaces */
+  --color-bg: #0f1729;
+  --color-bg-deep: #0b1120;
+  --color-surface: #182338;
+  --color-surface-2: #212f49;
+
+  /* ink */
+  --color-ink: #eef2fb;
+  --color-ink-soft: #9aa7c2;
+  --color-ink-faint: #5a6788;
+
+  /* accent (profile-tinted at runtime) */
+  --color-accent: #37e0a8;
+  --color-accent-deep: #22c48d;
+  --color-accent-soft: #2b6a5c;
+
+  /* fixed macro colours */
+  --color-kcal: #37e0a8;
+  --color-protein: #5b9dff;
+  --color-carbs: #f6c352;
+  --color-fat: #f38ba0;
+
+  /* status */
+  --color-good: #37e0a8;
+  --color-warn: #f6c352;
+  --color-over: #f38ba0;
+
+  --radius-xl: 1rem;
+  --radius-2xl: 1.4rem;
+  --radius-3xl: 1.75rem;
+
+  --shadow-soft: 0 12px 34px -12px rgba(0, 0, 0, 0.7);
+  --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    overscroll-behavior-y: none;
+  }
+
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  input,
+  button,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+@layer utilities {
+  .pb-safe-nav {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-pop-in {
+  animation: pop-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-fade-in {
+  animation: fade-in 0.18s ease both;
+}
+
+.sheet-panel {
+  transform: translateY(0);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@starting-style {
+  .sheet-panel {
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop-in,
+  .animate-fade-in {
+    animation: none;
+  }
+  .sheet-panel {
+    transition: none;
+  }
+}
