@@ -117,6 +117,12 @@ function FoodTab({
         source: 'group',
         sourceId: null,
         grams: items.reduce((s, it) => s + it.grams, 0),
+        items: items.map((it) => ({
+          ingredientId: it.ing.id,
+          name: it.ing.name,
+          grams: it.grams,
+          ...macrosForGrams(it.ing, it.grams),
+        })),
       })
     } else {
       for (const it of items) {

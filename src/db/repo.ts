@@ -4,6 +4,7 @@ import { roundMacros, type Macros } from '@/lib/macros'
 import { db } from './db'
 import {
   DEFAULT_SETTINGS,
+  type GroupItem,
   type Ingredient,
   type LogEntry,
   type LogSource,
@@ -236,6 +237,8 @@ export interface LogEntryInput {
   source: LogSource
   sourceId: string | null
   grams: number | null
+  /** breakdown for `source: 'group'` entries */
+  items?: GroupItem[]
 }
 
 export async function addLogEntry(input: LogEntryInput): Promise<string> {
@@ -255,15 +258,29 @@ export async function addLogEntry(input: LogEntryInput): Promise<string> {
     sourceId: input.sourceId,
     grams: input.grams != null ? round1(input.grams) : null,
     mealEventId: null,
+    ...(input.items ? { items: input.items.map(cleanGroupItem) } : {}),
     createdAt: now,
     updatedAt: now,
   })
   return id
 }
 
+function cleanGroupItem(it: GroupItem): GroupItem {
+  const m = roundMacros(it)
+  return {
+    ingredientId: it.ingredientId,
+    name: it.name.trim() || 'Item',
+    grams: round1(it.grams),
+    kcal: m.kcal,
+    protein: m.protein,
+    carbs: m.carbs,
+    fat: m.fat,
+  }
+}
+
 export async function updateLogEntry(
   id: string,
-  patch: { name?: string; macros?: Macros; grams?: number | null },
+  patch: { name?: string; macros?: Macros; grams?: number | null; items?: GroupItem[] },
 ): Promise<void> {
   const clean: Partial<LogEntry> = { updatedAt: Date.now() }
   if (patch.name != null) clean.name = patch.name.trim() || 'Entry'
@@ -274,6 +291,7 @@ export async function updateLogEntry(
     clean.carbs = m.carbs
     clean.fat = m.fat
   }
+  if (patch.items) clean.items = patch.items.map(cleanGroupItem)
   if (patch.grams !== undefined) clean.grams = patch.grams != null ? round1(patch.grams) : null
 
   const entry = await db.logEntries.get(id)

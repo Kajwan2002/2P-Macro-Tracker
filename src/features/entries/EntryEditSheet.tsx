@@ -5,6 +5,7 @@ import { Sheet } from '@/components/Sheet'
 import { useToast } from '@/components/Toast'
 import { deleteLogEntry, updateLogEntry } from '@/db/repo'
 import type { LogEntry } from '@/db/types'
+import { GroupEntrySheet } from './GroupEntrySheet'
 
 interface EntryEditSheetProps {
   entry: LogEntry | null
@@ -29,6 +30,10 @@ export function EntryEditSheet({ entry, onClose }: EntryEditSheetProps) {
   }, [entry])
 
   if (!entry) return null
+
+  if (entry.source === 'group' && entry.items && entry.items.length > 0) {
+    return <GroupEntrySheet entry={entry} onClose={onClose} />
+  }
 
   async function save() {
     await updateLogEntry(entry!.id, {

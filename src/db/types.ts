@@ -72,6 +72,18 @@ export interface QuickMeal {
 
 export type LogSource = 'ingredient' | 'meal' | 'quick' | 'group'
 
+/** One line of a grouped entry (e.g. "Breakfast"). Macros snapshotted at log time. */
+export interface GroupItem {
+  /** the ingredient it came from, if any (null once that ingredient is deleted) */
+  ingredientId: string | null
+  name: string
+  grams: number
+  kcal: number
+  protein: number
+  carbs: number
+  fat: number
+}
+
 /** One food eaten by one person on one day. Macros are snapshotted. */
 export interface LogEntry {
   id: string
@@ -89,6 +101,8 @@ export interface LogEntry {
   grams: number | null
   /** set when this entry is one side of a shared (split) cook */
   mealEventId: string | null
+  /** the breakdown, for `source: 'group'` entries — editable after logging */
+  items?: GroupItem[]
   createdAt: number
   updatedAt: number
 }
