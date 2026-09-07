@@ -55,7 +55,7 @@ export function HistoryPage() {
           height={130}
           formatValue={fmtKcal}
           bars={(days ?? []).map((d) => ({
-            label: range === '7' ? weekdayShort(d.date) : d.date.slice(8),
+            label: range === '7' ? weekdayShort(d.date) : d.date.slice(5).replace('-', '/'),
             value: Math.round(d.macros.kcal),
             target: profile?.kcalTarget,
             highlight: d.date === todayStr(),
@@ -74,7 +74,7 @@ export function HistoryPage() {
           color="var(--color-protein)"
           formatValue={(v) => `${round1(v)} g`}
           bars={(days ?? []).map((d) => ({
-            label: range === '7' ? weekdayShort(d.date) : d.date.slice(8),
+            label: range === '7' ? weekdayShort(d.date) : d.date.slice(5).replace('-', '/'),
             value: round1(d.macros.protein),
             target: profile?.proteinTarget,
             highlight: d.date === todayStr(),
