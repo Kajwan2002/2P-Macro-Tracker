@@ -21,7 +21,8 @@ import {
   useRecentDays,
   useWeights,
 } from '@/db/queries'
-import { deleteWeight, setWeight } from '@/db/repo'
+import { deleteWeight, setCheatDay, setWeight } from '@/db/repo'
+import { cn } from '@/lib/cn'
 import type { LogEntry } from '@/db/types'
 import { dayHeading, parseISO, shortDate, todayStr, weekdayShort } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
@@ -115,7 +116,7 @@ export function HistoryPage() {
             <div className="shrink-0 text-right">
               <div className="font-extrabold text-ink">{fmtKcal(d.macros.kcal)}</div>
               {cheat?.has(d.date) ? (
-                <div className="text-[0.65rem] font-semibold text-ink-faint">🍕 cheat day</div>
+                <div className="text-[0.65rem] font-semibold text-ink-faint">cheat day</div>
               ) : (
                 profile && (
                   <div className="text-[0.65rem] font-semibold text-ink-faint">
@@ -143,7 +144,7 @@ function CheatMonthCard({ dates }: { dates: Set<string> }) {
 
   return (
     <Card className="flex items-center justify-between gap-3 py-4">
-      <span className="font-bold text-ink-soft">🍕 Cheat days</span>
+      <span className="font-bold text-ink-soft">Cheat days</span>
       <span className="flex items-center gap-2">
         <button
           type="button"
@@ -270,15 +271,28 @@ function DayEntriesSheet({
   onClose: () => void
 }) {
   const entries = useDayEntries(profileId, date)
+  const isCheat = useCheatDays(profileId)?.has(date) ?? false
   const [editing, setEditing] = useState<LogEntry | null>(null)
   const totals = dayTotals(entries ?? [])
 
   return (
     <>
       <Sheet open onClose={onClose} title={dayHeading(date)}>
-        <div className="mb-3 rounded-2xl bg-surface p-3">
-          <div className="font-extrabold text-ink">{fmtKcal(totals.kcal)} kcal</div>
-          <MacroLine macros={totals} className="mt-0.5" />
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl bg-surface p-3">
+          <div className="min-w-0">
+            <div className="font-extrabold text-ink">{fmtKcal(totals.kcal)} kcal</div>
+            <MacroLine macros={totals} className="mt-0.5" />
+          </div>
+          <button
+            type="button"
+            onClick={() => setCheatDay(profileId, date, !isCheat)}
+            className={cn(
+              'shrink-0 rounded-full px-3 py-1 text-xs font-bold active:scale-95',
+              isCheat ? 'bg-accent text-bg-deep' : 'bg-surface-2 text-ink-faint',
+            )}
+          >
+            Cheat day
+          </button>
         </div>
         <div className="flex flex-col gap-2">
           {entries?.map((e) => (

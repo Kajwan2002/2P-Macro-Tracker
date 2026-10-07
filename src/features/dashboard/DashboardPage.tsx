@@ -28,7 +28,24 @@ export function DashboardPage() {
   const proteinLeft = (profile?.proteinTarget ?? 0) - totals.protein
 
   return (
-    <Screen title={dayHeading(date)} subtitle={profile?.name}>
+    <Screen
+      title={dayHeading(date)}
+      subtitle={profile?.name}
+      right={
+        profile && (
+          <button
+            type="button"
+            onClick={() => setCheatDay(profile.id, date, !isCheat)}
+            className={cn(
+              'rounded-full px-3 py-1 text-xs font-bold active:scale-95',
+              isCheat ? 'bg-accent text-bg-deep' : 'bg-surface text-ink-faint',
+            )}
+          >
+            Cheat day
+          </button>
+        )
+      }
+    >
       <ProfileSwitcher />
 
       <PeriodNav
@@ -38,23 +55,9 @@ export function DashboardPage() {
         nextDisabled={isTodayStr(date)}
       />
 
-      {profile && (
-        <button
-          type="button"
-          onClick={() => setCheatDay(profile.id, date, !isCheat)}
-          className={cn(
-            'self-center rounded-full px-3 py-1 text-xs font-bold active:scale-95',
-            isCheat ? 'bg-accent text-bg-deep' : 'bg-surface text-ink-faint shadow-card',
-          )}
-        >
-          🍕 {isCheat ? 'Cheat day' : 'Mark as cheat day'}
-        </button>
-      )}
-
       {isCheat ? (
         <Card className="py-6 text-center">
-          <div className="text-3xl">🍕</div>
-          <div className="mt-1 font-extrabold text-ink">Cheat day</div>
+          <div className="font-extrabold text-ink">Cheat day</div>
           <div className="text-xs font-semibold text-ink-faint">
             {fmtKcal(totals.kcal)} kcal logged · not counted
           </div>
