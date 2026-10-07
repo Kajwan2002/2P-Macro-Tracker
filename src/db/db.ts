@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type {
+  CheatDay,
   Ingredient,
   LogEntry,
   Meal,
@@ -20,6 +21,7 @@ export const db = new Dexie('macro-tracker') as Dexie & {
   logEntries: EntityTable<LogEntry, 'id'>
   mealEvents: EntityTable<MealEvent, 'id'>
   weights: EntityTable<WeightEntry, 'id'>
+  cheatDays: EntityTable<CheatDay, 'id'>
   settings: EntityTable<Settings, 'id'>
 }
 
@@ -36,6 +38,11 @@ db.version(1).stores({
 // v2 — saved macros-only "quick meals"
 db.version(2).stores({
   quickMeals: 'id, name',
+})
+
+// v3 — cheat days
+db.version(3).stores({
+  cheatDays: 'id, profileId',
 })
 
 /** Ask the browser to keep our data (helps on iOS home-screen installs). */

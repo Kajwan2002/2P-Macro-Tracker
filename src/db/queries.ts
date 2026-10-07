@@ -146,6 +146,17 @@ export function useLoggedDays(profileId: string | undefined): DayTotal[] | undef
   }, [profileId])
 }
 
+/* ------------------------------ cheat days ------------------------------ */
+
+/** All cheat-day dates for a profile. */
+export function useCheatDays(profileId: string | undefined): Set<DateStr> | undefined {
+  return useLiveQuery(async () => {
+    if (!profileId) return new Set<DateStr>()
+    const rows = await db.cheatDays.where('profileId').equals(profileId).toArray()
+    return new Set(rows.map((r) => r.date))
+  }, [profileId])
+}
+
 /* -------------------------------- weight -------------------------------- */
 
 export function useWeights(profileId: string | undefined): WeightEntry[] | undefined {

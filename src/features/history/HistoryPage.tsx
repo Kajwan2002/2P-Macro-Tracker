@@ -1,3 +1,4 @@
+import { addMonths, format } from 'date-fns'
 import { useState } from 'react'
 import { BarChart } from '@/components/BarChart'
 import { Button } from '@/components/Button'
@@ -14,6 +15,7 @@ import { useToast } from '@/components/Toast'
 import {
   dayTotals,
   useActiveProfile,
+  useCheatDays,
   useDayEntries,
   useLoggedDays,
   useRecentDays,
@@ -21,7 +23,7 @@ import {
 } from '@/db/queries'
 import { deleteWeight, setWeight } from '@/db/repo'
 import type { LogEntry } from '@/db/types'
-import { dayHeading, shortDate, todayStr, weekdayShort } from '@/lib/dates'
+import { dayHeading, parseISO, shortDate, todayStr, weekdayShort } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
 import { EntryEditSheet } from '@/features/entries/EntryEditSheet'
 
@@ -30,9 +32,10 @@ export function HistoryPage() {
   const [range, setRange] = useState<'7' | '30'>('7')
   const days = useRecentDays(profile?.id, range === '7' ? 7 : 30)
   const logged = useLoggedDays(profile?.id)
+  const cheat = useCheatDays(profile?.id)
   const [openDay, setOpenDay] = useState<string | null>(null)
 
-  const loggedInRange = (days ?? []).filter((d) => d.macros.kcal > 0)
+  const loggedInRange = (days ?? []).filter((d) => d.macros.kcal > 0 && !cheat?.has(d.date))
   const nLogged = loggedInRange.length || 1
   const avgKcal = Math.round(loggedInRange.reduce((s, d) => s + d.macros.kcal, 0) / nLogged)
   const avgProtein = round1(loggedInRange.reduce((s, d) => s + d.macros.protein, 0) / nLogged)
@@ -57,7 +60,8 @@ export function HistoryPage() {
           bars={(days ?? []).map((d) => ({
             label: range === '7' ? weekdayShort(d.date) : d.date.slice(5).replace('-', '/'),
             value: Math.round(d.macros.kcal),
-            target: profile?.kcalTarget,
+            target: cheat?.has(d.date) ? undefined : profile?.kcalTarget,
+            muted: cheat?.has(d.date),
             highlight: d.date === todayStr(),
           }))}
         />
@@ -77,7 +81,8 @@ export function HistoryPage() {
           bars={(days ?? []).map((d) => ({
             label: range === '7' ? weekdayShort(d.date) : d.date.slice(5).replace('-', '/'),
             value: round1(d.macros.protein),
-            target: profile?.proteinTarget,
+            target: cheat?.has(d.date) ? undefined : profile?.proteinTarget,
+            muted: cheat?.has(d.date),
             highlight: d.date === todayStr(),
           }))}
         />
@@ -86,6 +91,8 @@ export function HistoryPage() {
           {profile ? ` · target ${profile.proteinTarget} g` : ''}
         </p>
       </Card>
+
+      {cheat && <CheatMonthCard dates={cheat} />}
 
       {profile && <WeightSection profileId={profile.id} />}
 
@@ -107,10 +114,14 @@ export function HistoryPage() {
             </div>
             <div className="shrink-0 text-right">
               <div className="font-extrabold text-ink">{fmtKcal(d.macros.kcal)}</div>
-              {profile && (
-                <div className="text-[0.65rem] font-semibold text-ink-faint">
-                  {Math.round((d.macros.kcal / Math.max(1, profile.kcalTarget)) * 100)}% of target
-                </div>
+              {cheat?.has(d.date) ? (
+                <div className="text-[0.65rem] font-semibold text-ink-faint">🍕 cheat day</div>
+              ) : (
+                profile && (
+                  <div className="text-[0.65rem] font-semibold text-ink-faint">
+                    {Math.round((d.macros.kcal / Math.max(1, profile.kcalTarget)) * 100)}% of target
+                  </div>
+                )
               )}
             </div>
           </button>
@@ -121,6 +132,42 @@ export function HistoryPage() {
         <DayEntriesSheet profileId={profile.id} date={openDay} onClose={() => setOpenDay(null)} />
       )}
     </Screen>
+  )
+}
+
+function CheatMonthCard({ dates }: { dates: Set<string> }) {
+  const thisMonth = todayStr().slice(0, 7)
+  const [month, setMonth] = useState(thisMonth)
+  const count = [...dates].filter((d) => d.startsWith(month)).length
+  const step = (n: number) => setMonth((m) => format(addMonths(parseISO(`${m}-01`), n), 'yyyy-MM'))
+
+  return (
+    <Card className="flex items-center justify-between gap-3 py-4">
+      <span className="font-bold text-ink-soft">🍕 Cheat days</span>
+      <span className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          className="px-1 font-bold text-ink-faint"
+          aria-label="Previous month"
+        >
+          ‹
+        </button>
+        <span className="text-sm font-semibold text-ink-faint">
+          {format(parseISO(`${month}-01`), 'MMM yyyy')}
+        </span>
+        <button
+          type="button"
+          onClick={() => step(1)}
+          disabled={month >= thisMonth}
+          className="px-1 font-bold text-ink-faint disabled:opacity-30"
+          aria-label="Next month"
+        >
+          ›
+        </button>
+        <span className="w-6 text-right text-lg font-extrabold text-ink">{count}</span>
+      </span>
+    </Card>
   )
 }
 

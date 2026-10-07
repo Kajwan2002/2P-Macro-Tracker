@@ -2,6 +2,7 @@ import { format } from 'date-fns'
 import { db, requestPersistentStorage } from './db'
 import { updateSettings } from './repo'
 import type {
+  CheatDay,
   Ingredient,
   LogEntry,
   Meal,
@@ -12,7 +13,7 @@ import type {
   WeightEntry,
 } from './types'
 
-const BACKUP_VERSION = 2
+const BACKUP_VERSION = 3
 
 export interface BackupFile {
   app: 'macro-tracker'
@@ -26,12 +27,14 @@ export interface BackupFile {
     logEntries: LogEntry[]
     mealEvents: MealEvent[]
     weights: WeightEntry[]
+    /** added in v3 — absent in older backups */
+    cheatDays?: CheatDay[]
     settings: Settings[]
   }
 }
 
 export async function buildBackup(): Promise<BackupFile> {
-  const [profiles, ingredients, meals, quickMeals, logEntries, mealEvents, weights, settings] =
+  const [profiles, ingredients, meals, quickMeals, logEntries, mealEvents, weights, cheatDays, settings] =
     await Promise.all([
       db.profiles.toArray(),
       db.ingredients.toArray(),
@@ -40,13 +43,24 @@ export async function buildBackup(): Promise<BackupFile> {
       db.logEntries.toArray(),
       db.mealEvents.toArray(),
       db.weights.toArray(),
+      db.cheatDays.toArray(),
       db.settings.toArray(),
     ])
   return {
     app: 'macro-tracker',
     version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
-    data: { profiles, ingredients, meals, quickMeals, logEntries, mealEvents, weights, settings },
+    data: {
+      profiles,
+      ingredients,
+      meals,
+      quickMeals,
+      logEntries,
+      mealEvents,
+      weights,
+      cheatDays,
+      settings,
+    },
   }
 }
 
@@ -105,8 +119,17 @@ export async function importBackup(text: string): Promise<ImportResult> {
   }
   if (!isBackup(parsed)) throw new Error('That doesn’t look like a Macro Tracker backup.')
 
-  const { profiles, ingredients, meals, quickMeals, logEntries, mealEvents, weights, settings } =
-    parsed.data
+  const {
+    profiles,
+    ingredients,
+    meals,
+    quickMeals,
+    logEntries,
+    mealEvents,
+    weights,
+    cheatDays,
+    settings,
+  } = parsed.data
 
   await db.transaction(
     'rw',
@@ -118,6 +141,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
       db.logEntries,
       db.mealEvents,
       db.weights,
+      db.cheatDays,
       db.settings,
     ],
     async () => {
@@ -129,6 +153,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
         db.logEntries.clear(),
         db.mealEvents.clear(),
         db.weights.clear(),
+        db.cheatDays.clear(),
         db.settings.clear(),
       ])
       if (profiles?.length) await db.profiles.bulkAdd(profiles)
@@ -138,6 +163,7 @@ export async function importBackup(text: string): Promise<ImportResult> {
       if (logEntries?.length) await db.logEntries.bulkAdd(logEntries)
       if (mealEvents?.length) await db.mealEvents.bulkAdd(mealEvents)
       if (weights?.length) await db.weights.bulkAdd(weights)
+      if (cheatDays?.length) await db.cheatDays.bulkAdd(cheatDays)
       if (settings?.length) await db.settings.bulkAdd(settings)
     },
   )
@@ -161,6 +187,7 @@ export async function wipeAll(): Promise<void> {
       db.logEntries,
       db.mealEvents,
       db.weights,
+      db.cheatDays,
       db.settings,
     ],
     async () => {
@@ -172,6 +199,7 @@ export async function wipeAll(): Promise<void> {
         db.logEntries.clear(),
         db.mealEvents.clear(),
         db.weights.clear(),
+        db.cheatDays.clear(),
         db.settings.clear(),
       ])
     },

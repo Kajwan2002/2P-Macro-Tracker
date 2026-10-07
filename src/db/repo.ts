@@ -77,13 +77,14 @@ export async function updateProfile(
 export async function deleteProfile(id: string): Promise<void> {
   await db.transaction(
     'rw',
-    [db.profiles, db.logEntries, db.weights, db.mealEvents, db.settings],
+    [db.profiles, db.logEntries, db.weights, db.cheatDays, db.mealEvents, db.settings],
     async () => {
       const remaining = await db.profiles.count()
       if (remaining <= 1) throw new Error('You need at least one profile.')
 
       await db.logEntries.where('profileId').equals(id).delete()
       await db.weights.where('profileId').equals(id).delete()
+      await db.cheatDays.where('profileId').equals(id).delete()
 
       // drop this profile from any split; delete events left with no splits
       const events = await db.mealEvents.toArray()
@@ -433,6 +434,14 @@ export async function setWeight(profileId: string, date: string, kg: number): Pr
 
 export async function deleteWeight(id: string): Promise<void> {
   await db.weights.delete(id)
+}
+
+/* ------------------------------ cheat days ------------------------------ */
+
+export async function setCheatDay(profileId: string, date: string, on: boolean): Promise<void> {
+  const id = `${profileId}:${date}`
+  if (on) await db.cheatDays.put({ id, profileId, date, createdAt: Date.now() })
+  else await db.cheatDays.delete(id)
 }
 
 /* -------------------------------- utils -------------------------------- */

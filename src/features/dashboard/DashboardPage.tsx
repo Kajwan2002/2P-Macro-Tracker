@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Card } from '@/components/Card'
+import { cn } from '@/lib/cn'
 import { EmptyState } from '@/components/EmptyState'
 import { MacroBar, MacroLine } from '@/components/MacroBits'
 import { PeriodNav } from '@/components/PeriodNav'
 import { ProfileSwitcher } from '@/components/ProfileSwitcher'
 import { Ring } from '@/components/Ring'
 import { Screen } from '@/components/Screen'
-import { dayTotals, useActiveProfile, useDayEntries } from '@/db/queries'
+import { dayTotals, useActiveProfile, useCheatDays, useDayEntries } from '@/db/queries'
+import { setCheatDay } from '@/db/repo'
 import type { LogEntry } from '@/db/types'
 import { dayHeading, isTodayStr, shiftDay, todayStr } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
@@ -19,6 +21,7 @@ export function DashboardPage() {
   const entries = useDayEntries(profile?.id, date)
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<LogEntry | null>(null)
+  const isCheat = useCheatDays(profile?.id)?.has(date) ?? false
 
   const totals = dayTotals(entries ?? [])
   const kcalLeft = (profile?.kcalTarget ?? 0) - totals.kcal
@@ -35,49 +38,74 @@ export function DashboardPage() {
         nextDisabled={isTodayStr(date)}
       />
 
-      <Card className="flex justify-around gap-2 py-6">
-        <Ring value={profile ? totals.kcal / Math.max(1, profile.kcalTarget) : 0} size={148} stroke={13}>
-          <div>
-            <div className="text-2xl font-extrabold text-ink">{fmtKcal(Math.max(0, kcalLeft))}</div>
-            <div className="text-[0.65rem] font-bold text-ink-faint">
-              {kcalLeft >= 0 ? 'kcal left' : 'kcal over'}
-            </div>
-            <div className="mt-0.5 text-[0.65rem] font-semibold text-ink-faint">
-              {fmtKcal(totals.kcal)} / {fmtKcal(profile?.kcalTarget ?? 0)}
-            </div>
-          </div>
-        </Ring>
-        <Ring
-          value={profile ? totals.protein / Math.max(1, profile.proteinTarget) : 0}
-          size={148}
-          stroke={13}
+      {profile && (
+        <button
+          type="button"
+          onClick={() => setCheatDay(profile.id, date, !isCheat)}
+          className={cn(
+            'self-center rounded-full px-3 py-1 text-xs font-bold active:scale-95',
+            isCheat ? 'bg-accent text-bg-deep' : 'bg-surface text-ink-faint shadow-card',
+          )}
         >
-          <div>
-            <div className="text-2xl font-extrabold text-ink">{round1(Math.max(0, proteinLeft))}</div>
-            <div className="text-[0.65rem] font-bold text-ink-faint">
-              {proteinLeft >= 0 ? 'g protein left' : 'g over'}
-            </div>
-            <div className="mt-0.5 text-[0.65rem] font-semibold text-ink-faint">
-              {round1(totals.protein)} / {profile?.proteinTarget ?? 0} g
-            </div>
-          </div>
-        </Ring>
-      </Card>
+          🍕 {isCheat ? 'Cheat day' : 'Mark as cheat day'}
+        </button>
+      )}
 
-      <Card className="flex flex-col gap-3">
-        <MacroBar
-          label="Carbs"
-          value={totals.carbs}
-          target={profile?.carbsTarget ?? 0}
-          color="var(--color-carbs)"
-        />
-        <MacroBar
-          label="Fat"
-          value={totals.fat}
-          target={profile?.fatTarget ?? 0}
-          color="var(--color-fat)"
-        />
-      </Card>
+      {isCheat ? (
+        <Card className="py-6 text-center">
+          <div className="text-3xl">🍕</div>
+          <div className="mt-1 font-extrabold text-ink">Cheat day</div>
+          <div className="text-xs font-semibold text-ink-faint">
+            {fmtKcal(totals.kcal)} kcal logged · not counted
+          </div>
+        </Card>
+      ) : (
+        <>
+          <Card className="flex justify-around gap-2 py-6">
+            <Ring value={profile ? totals.kcal / Math.max(1, profile.kcalTarget) : 0} size={148} stroke={13}>
+              <div>
+                <div className="text-2xl font-extrabold text-ink">{fmtKcal(Math.max(0, kcalLeft))}</div>
+                <div className="text-[0.65rem] font-bold text-ink-faint">
+                  {kcalLeft >= 0 ? 'kcal left' : 'kcal over'}
+                </div>
+                <div className="mt-0.5 text-[0.65rem] font-semibold text-ink-faint">
+                  {fmtKcal(totals.kcal)} / {fmtKcal(profile?.kcalTarget ?? 0)}
+                </div>
+              </div>
+            </Ring>
+            <Ring
+              value={profile ? totals.protein / Math.max(1, profile.proteinTarget) : 0}
+              size={148}
+              stroke={13}
+            >
+              <div>
+                <div className="text-2xl font-extrabold text-ink">{round1(Math.max(0, proteinLeft))}</div>
+                <div className="text-[0.65rem] font-bold text-ink-faint">
+                  {proteinLeft >= 0 ? 'g protein left' : 'g over'}
+                </div>
+                <div className="mt-0.5 text-[0.65rem] font-semibold text-ink-faint">
+                  {round1(totals.protein)} / {profile?.proteinTarget ?? 0} g
+                </div>
+              </div>
+            </Ring>
+          </Card>
+
+          <Card className="flex flex-col gap-3">
+            <MacroBar
+              label="Carbs"
+              value={totals.carbs}
+              target={profile?.carbsTarget ?? 0}
+              color="var(--color-carbs)"
+            />
+            <MacroBar
+              label="Fat"
+              value={totals.fat}
+              target={profile?.fatTarget ?? 0}
+              color="var(--color-fat)"
+            />
+          </Card>
+        </>
+      )}
 
       <div className="flex flex-col gap-2">
         {(entries?.length ?? 0) === 0 ? (

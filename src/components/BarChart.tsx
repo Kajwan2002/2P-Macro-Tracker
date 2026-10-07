@@ -6,6 +6,8 @@ export interface Bar {
   /** optional reference line (e.g. the target) drawn across the track */
   target?: number
   highlight?: boolean
+  /** drawn faint (e.g. a cheat day) */
+  muted?: boolean
 }
 
 interface BarChartProps {
@@ -46,7 +48,7 @@ export function BarChart({
                     style={{
                       height: `${hPct}%`,
                       background: b.highlight ? (highlightColor ?? color) : color,
-                      opacity: b.highlight ? 1 : 0.6,
+                      opacity: b.muted ? 0.2 : b.highlight ? 1 : 0.6,
                     }}
                   />
                 )}

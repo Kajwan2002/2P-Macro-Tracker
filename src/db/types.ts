@@ -150,6 +150,17 @@ export interface WeightEntry {
   createdAt: number
 }
 
+/* ------------------------------ cheat days ------------------------------ */
+
+/** A day one profile marked as a cheat day — not counted in averages. */
+export interface CheatDay {
+  /** `${profileId}:${date}` — one row per profile per day */
+  id: string
+  profileId: string
+  date: DateStr
+  createdAt: number
+}
+
 /* ------------------------------- settings ------------------------------- */
 
 export interface Settings {
