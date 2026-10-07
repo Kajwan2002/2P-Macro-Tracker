@@ -107,7 +107,10 @@ export function HistoryPage() {
             key={d.date}
             type="button"
             onClick={() => setOpenDay(d.date)}
-            className="flex items-center justify-between gap-3 rounded-2xl bg-surface p-3.5 text-left shadow-card active:opacity-80"
+            className={cn(
+              'flex items-center justify-between gap-3 rounded-2xl bg-surface p-3.5 text-left shadow-card active:opacity-80',
+              cheat?.has(d.date) && 'ring-1 ring-accent/50',
+            )}
           >
             <div className="min-w-0">
               <div className="truncate font-bold text-ink">{dayHeading(d.date)}</div>
@@ -116,7 +119,7 @@ export function HistoryPage() {
             <div className="shrink-0 text-right">
               <div className="font-extrabold text-ink">{fmtKcal(d.macros.kcal)}</div>
               {cheat?.has(d.date) ? (
-                <div className="text-[0.65rem] font-semibold text-ink-faint">cheat day</div>
+                <div className="text-[0.65rem] font-bold text-accent">cheat day</div>
               ) : (
                 profile && (
                   <div className="text-[0.65rem] font-semibold text-ink-faint">
