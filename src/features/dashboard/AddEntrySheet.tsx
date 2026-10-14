@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Button } from '@/components/Button'
 import { EmptyState } from '@/components/EmptyState'
 import { MacroLine } from '@/components/MacroBits'
-import { NumberField } from '@/components/NumberField'
 import { Segmented } from '@/components/Segmented'
 import { Sheet } from '@/components/Sheet'
 import { useToast } from '@/components/Toast'
@@ -13,6 +12,7 @@ import { fmtKcal, macrosForGrams, mealTotals, sumMacros } from '@/lib/macros'
 import { AmountField } from '@/features/meals/AmountField'
 import { IngredientPicker } from '@/features/meals/IngredientPicker'
 import { LogMealSheet } from '@/features/meals/LogMealSheet'
+import { QuickMacroFields } from '@/features/meals/QuickMacroFields'
 
 interface AddEntrySheetProps {
   open: boolean
@@ -370,12 +370,15 @@ function QuickEntry({
           className="rounded-2xl bg-surface-2 px-3 py-2.5 font-bold text-ink outline-none placeholder:text-ink-faint"
         />
       </label>
-      <div className="grid grid-cols-2 gap-2">
-        <NumberField label="Calories" value={kcal} onChange={setKcal} suffix="kcal" />
-        <NumberField label="Protein" value={protein} onChange={setProtein} suffix="g" />
-        <NumberField label="Carbs" value={carbs} onChange={setCarbs} suffix="g" />
-        <NumberField label="Fat" value={fat} onChange={setFat} suffix="g" />
-      </div>
+      <QuickMacroFields
+        value={{ kcal, protein, carbs, fat }}
+        onChange={(m) => {
+          setKcal(m.kcal)
+          setProtein(m.protein)
+          setCarbs(m.carbs)
+          setFat(m.fat)
+        }}
+      />
       <label className="flex items-center gap-2 px-1 text-sm font-semibold text-ink-soft">
         <input
           type="checkbox"

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/Button'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
-import { NumberField } from '@/components/NumberField'
 import { Sheet } from '@/components/Sheet'
 import { useToast } from '@/components/Toast'
 import { addQuickMeal, deleteQuickMeal, updateQuickMeal } from '@/db/repo'
 import type { QuickMeal } from '@/db/types'
+import { QuickMacroFields } from './QuickMacroFields'
 
 interface QuickMealFormSheetProps {
   open: boolean
@@ -63,12 +63,15 @@ export function QuickMealFormSheet({ open, onClose, quickMeal }: QuickMealFormSh
 
         <div>
           <p className="mb-1 px-1 text-[0.7rem] font-bold text-ink-soft">Macros per serving</p>
-          <div className="grid grid-cols-2 gap-2">
-            <NumberField label="Calories" value={kcal} onChange={setKcal} suffix="kcal" />
-            <NumberField label="Protein" value={protein} onChange={setProtein} suffix="g" />
-            <NumberField label="Carbs" value={carbs} onChange={setCarbs} suffix="g" />
-            <NumberField label="Fat" value={fat} onChange={setFat} suffix="g" />
-          </div>
+          <QuickMacroFields
+            value={{ kcal, protein, carbs, fat }}
+            onChange={(m) => {
+              setKcal(m.kcal)
+              setProtein(m.protein)
+              setCarbs(m.carbs)
+              setFat(m.fat)
+            }}
+          />
         </div>
 
         <Button full onClick={save}>
