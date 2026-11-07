@@ -94,6 +94,10 @@ export function ChatPage() {
   }
 
   function toggleSpeak(m: ChatMessage) {
+    if (!canSpeak) {
+      toast('This browser can’t read aloud')
+      return
+    }
     if (speakingId === m.id) {
       stopSpeaking()
       setSpeakingId(null)
@@ -173,7 +177,7 @@ export function ChatPage() {
               >
                 {m.hadImage && <div className="mb-0.5 text-xs font-bold opacity-70">📷 Photo</div>}
                 {m.text}
-                {m.role === 'model' && canSpeak && (
+                {m.role === 'model' && (
                   <button
                     type="button"
                     onClick={() => toggleSpeak(m)}
