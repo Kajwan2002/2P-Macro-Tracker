@@ -37,14 +37,18 @@ export interface Content {
   parts: Part[]
 }
 
+export interface Schema {
+  type: 'STRING' | 'NUMBER' | 'BOOLEAN' | 'ARRAY' | 'OBJECT'
+  description?: string
+  items?: Schema
+  properties?: Record<string, Schema>
+  required?: string[]
+}
+
 export interface FunctionDeclaration {
   name: string
   description: string
-  parameters: {
-    type: 'OBJECT'
-    properties: Record<string, { type: 'STRING' | 'NUMBER'; description: string }>
-    required: string[]
-  }
+  parameters: Schema & { type: 'OBJECT'; properties: Record<string, Schema> }
 }
 
 export interface ToolResult {
