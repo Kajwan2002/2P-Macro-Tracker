@@ -4,6 +4,7 @@ import { addMacros, ZERO_MACROS, type Macros } from '@/lib/macros'
 import { db } from './db'
 import { getSettings } from './repo'
 import type {
+  ChatMessage,
   Ingredient,
   LogEntry,
   Meal,
@@ -158,6 +159,10 @@ export function useCheatDays(profileId: string | undefined): Set<DateStr> | unde
 }
 
 /* -------------------------------- weight -------------------------------- */
+
+export function useChat(): ChatMessage[] | undefined {
+  return useLiveQuery(() => db.chatMessages.orderBy('createdAt').toArray(), [])
+}
 
 export function useWeights(profileId: string | undefined): WeightEntry[] | undefined {
   return useLiveQuery(async () => {

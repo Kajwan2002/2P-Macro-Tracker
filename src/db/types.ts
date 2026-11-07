@@ -161,6 +161,18 @@ export interface CheatDay {
   createdAt: number
 }
 
+/* --------------------------------- chat --------------------------------- */
+
+/** One message in the assistant chat. Photos are never stored — only a flag. */
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'model'
+  text: string
+  /** the user attached a photo (the image itself is discarded after sending) */
+  hadImage?: boolean
+  createdAt: number
+}
+
 /* ------------------------------- settings ------------------------------- */
 
 export interface Settings {

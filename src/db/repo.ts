@@ -4,6 +4,7 @@ import { roundMacros, type Macros } from '@/lib/macros'
 import { db } from './db'
 import {
   DEFAULT_SETTINGS,
+  type ChatMessage,
   type GroupItem,
   type Ingredient,
   type LogEntry,
@@ -418,6 +419,26 @@ export async function deleteMealEvent(id: string): Promise<void> {
     await db.logEntries.where('mealEventId').equals(id).delete()
     await db.mealEvents.delete(id)
   })
+}
+
+/* --------------------------------- chat --------------------------------- */
+
+export async function addChatMessage(
+  role: ChatMessage['role'],
+  text: string,
+  hadImage = false,
+): Promise<void> {
+  await db.chatMessages.add({
+    id: newId(),
+    role,
+    text,
+    ...(hadImage ? { hadImage: true } : {}),
+    createdAt: Date.now(),
+  })
+}
+
+export async function clearChat(): Promise<void> {
+  await db.chatMessages.clear()
 }
 
 /* -------------------------------- weight -------------------------------- */

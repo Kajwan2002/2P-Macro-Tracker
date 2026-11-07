@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type {
   CheatDay,
+  ChatMessage,
   Ingredient,
   LogEntry,
   Meal,
@@ -22,6 +23,7 @@ export const db = new Dexie('macro-tracker') as Dexie & {
   mealEvents: EntityTable<MealEvent, 'id'>
   weights: EntityTable<WeightEntry, 'id'>
   cheatDays: EntityTable<CheatDay, 'id'>
+  chatMessages: EntityTable<ChatMessage, 'id'>
   settings: EntityTable<Settings, 'id'>
 }
 
@@ -43,6 +45,11 @@ db.version(2).stores({
 // v3 — cheat days
 db.version(3).stores({
   cheatDays: 'id, profileId',
+})
+
+// v4 — assistant chat history (kept until the user clears it)
+db.version(4).stores({
+  chatMessages: 'id, createdAt',
 })
 
 /** Ask the browser to keep our data (helps on iOS home-screen installs). */

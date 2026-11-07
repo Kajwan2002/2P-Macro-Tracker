@@ -4,6 +4,7 @@ import { ToastProvider } from '@/components/Toast'
 import { useActiveProfile } from '@/db/queries'
 import { ensureSeeded } from '@/db/seed'
 import { applyAccent } from '@/theme/accents'
+import { ChatPage } from '@/features/chat/ChatPage'
 import { DashboardPage } from '@/features/dashboard/DashboardPage'
 import { HistoryPage } from '@/features/history/HistoryPage'
 import { MealsPage } from '@/features/meals/MealsPage'
@@ -40,6 +41,7 @@ function Shell() {
         <Route path="/meals/new" element={<MealBuilderPage />} />
         <Route path="/meals/:id/edit" element={<MealBuilderPage />} />
         <Route path="/meals/:id" element={<MealDetailPage />} />
+        <Route path="/chat" element={<ChatPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

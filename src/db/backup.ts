@@ -188,6 +188,7 @@ export async function wipeAll(): Promise<void> {
       db.mealEvents,
       db.weights,
       db.cheatDays,
+      db.chatMessages,
       db.settings,
     ],
     async () => {
@@ -200,6 +201,7 @@ export async function wipeAll(): Promise<void> {
         db.mealEvents.clear(),
         db.weights.clear(),
         db.cheatDays.clear(),
+        db.chatMessages.clear(),
         db.settings.clear(),
       ])
     },

@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn'
 const tabs = [
   { to: '/', label: 'Today', icon: TodayIcon, end: true },
   { to: '/meals', label: 'Meals', icon: MealsIcon },
+  { to: '/chat', label: 'Chat', icon: ChatIcon },
   { to: '/history', label: 'History', icon: HistoryIcon },
   { to: '/settings', label: 'Settings', icon: GearIcon },
 ]
@@ -66,6 +67,15 @@ function MealsIcon({ active }: { active: boolean }) {
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className={base(active)} aria-hidden>
       <path d="M6 3v8M9 3v8M6 11h3M7.5 11v10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M17 3c-1.7 0-3 2-3 5s1.3 4 3 4m0-9v18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ChatIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className={base(active)} aria-hidden>
+      <path d="M5 5h14a2 2 0 012 2v8a2 2 0 01-2 2h-7l-4 3.5V17H5a2 2 0 01-2-2V7a2 2 0 012-2z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path d="M12 8.2l.9 1.9 1.9.9-1.9.9-.9 1.9-.9-1.9-1.9-.9 1.9-.9z" fill="currentColor" />
     </svg>
   )
 }
