@@ -92,11 +92,43 @@ interface AskOptions {
 
 const MAX_TOOL_ROUNDS = 5
 
+function endpoint(): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(getGeminiModel())}:generateContent`
+}
+
+/** Turn a short voice clip (WAV, base64) into text. The clip is never stored. */
+export async function transcribeAudio(wavBase64: string): Promise<string> {
+  const key = getGeminiKey()
+  if (!key) throw new GeminiError('No API key', 400)
+  const res = await fetch(endpoint(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: 'Transcribe this short voice message exactly as spoken. Output only the transcript — no quotes, no commentary. If there is no clear speech, output nothing.',
+            },
+            { inlineData: { mimeType: 'audio/wav', data: wavBase64 } },
+          ],
+        },
+      ],
+      generationConfig: { temperature: 0, maxOutputTokens: 400 },
+    }),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new GeminiError(json?.error?.message ?? res.statusText, res.status)
+  const parts: Part[] = json?.candidates?.[0]?.content?.parts ?? []
+  return parts.map((p) => (typeof p.text === 'string' ? p.text : '')).join('').trim()
+}
+
 /** Send one user turn; runs any tool calls the model makes; returns the final reply. */
 export async function askGemini(opts: AskOptions): Promise<string> {
   const key = getGeminiKey()
   if (!key) throw new GeminiError('No API key', 400)
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(getGeminiModel())}:generateContent`
+  const url = endpoint()
 
   const userParts: Part[] = [{ text: opts.text || 'Here is a photo.' }]
   if (opts.image) userParts.push({ inlineData: { mimeType: opts.image.mimeType, data: opts.image.data } })

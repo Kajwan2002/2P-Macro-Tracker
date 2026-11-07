@@ -75,9 +75,10 @@ export function GeminiKeySheet({ open, onClose, onChanged }: GeminiKeySheetProps
         </label>
 
         <p className="rounded-2xl bg-surface px-4 py-3 text-xs leading-relaxed text-ink-faint">
-          Privacy: your questions, today’s macros, your ingredient list and any photo you attach
-          are sent to Google. On the free tier Google may use them to improve its products. Photos
-          are shrunk, never saved in this app, and gone as soon as they’re sent.
+          Privacy: your questions, today’s macros, your ingredient list, any photo you attach
+          and any voice clip are sent to Google. On the free tier Google may use them to improve its
+          products. Photos and voice clips are never saved in this app — they’re gone as soon as
+          they’re sent.
         </p>
 
         <Button full onClick={save} disabled={!key.trim()}>

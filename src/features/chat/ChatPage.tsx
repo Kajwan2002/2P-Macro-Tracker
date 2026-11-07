@@ -9,12 +9,14 @@ import type { ChatMessage } from '@/db/types'
 import { cn } from '@/lib/cn'
 import {
   askGemini,
+  transcribeAudio,
   friendlyError,
   getGeminiKey,
   prepareImage,
   type ChatImage,
   type Content,
 } from '@/lib/gemini'
+import { blobToBase64, canRecord, startRecording, type Recording } from '@/lib/recorder'
 import { canSpeak, speak, stopSpeaking } from '@/lib/speech'
 import { buildSystemPrompt, runTool, TOOLS } from './assistant'
 import { GeminiKeySheet } from './GeminiKeySheet'
@@ -46,15 +48,60 @@ export function ChatPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
+  const [mic, setMic] = useState<'idle' | 'recording' | 'transcribing'>('idle')
+  const recRef = useRef<Recording | null>(null)
+  const timerRef = useRef<number | undefined>(undefined)
   const endRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // stop talking when leaving the page
-  useEffect(() => stopSpeaking, [])
+  // stop talking / release the mic when leaving the page
+  useEffect(
+    () => () => {
+      stopSpeaking()
+      window.clearTimeout(timerRef.current)
+      recRef.current?.cancel()
+    },
+    [],
+  )
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [messages?.length, busy, error])
+
+  async function toggleMic() {
+    if (mic === 'transcribing') return
+    if (mic === 'recording') {
+      window.clearTimeout(timerRef.current)
+      const rec = recRef.current
+      recRef.current = null
+      if (!rec) return
+      setMic('transcribing')
+      try {
+        const text = await transcribeAudio(await blobToBase64(await rec.stop()))
+        if (text) setInput((cur) => (cur ? cur + ' ' : '') + text)
+        else toast('Didn’t catch that — try again')
+      } catch (err) {
+        setError(friendlyError(err))
+      } finally {
+        setMic('idle')
+      }
+      return
+    }
+    if (!canRecord) {
+      toast('This browser can’t record audio')
+      return
+    }
+    try {
+      stopSpeaking()
+      setSpeakingId(null)
+      recRef.current = await startRecording()
+      setMic('recording')
+      // safety stop so a forgotten recording doesn't run forever
+      timerRef.current = window.setTimeout(() => void toggleMic(), 60_000)
+    } catch {
+      toast('Microphone blocked — allow it in your phone/browser settings')
+    }
+  }
 
   async function pickPhoto(file: File | undefined) {
     if (!file) return
@@ -245,11 +292,32 @@ export function ChatPage() {
                   <circle cx="12" cy="13" r="3.5" />
                 </svg>
               </button>
+              <button
+                type="button"
+                onClick={() => void toggleMic()}
+                disabled={mic === 'transcribing'}
+                aria-label={mic === 'recording' ? 'Stop recording' : 'Speak'}
+                className={cn(
+                  'grid h-11 w-11 shrink-0 place-items-center rounded-full active:scale-95',
+                  mic === 'recording' ? 'animate-pulse bg-over text-bg-deep' : 'bg-surface-2 text-ink-soft',
+                )}
+              >
+                {mic === 'transcribing' ? (
+                  <span className="text-xs font-bold">…</span>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <rect x="9" y="3" width="6" height="12" rx="3" />
+                    <path d="M5 11a7 7 0 0014 0M12 18v3" />
+                  </svg>
+                )}
+              </button>
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && void send()}
-                placeholder="Ask or tell me something…"
+                placeholder={
+                  mic === 'recording' ? 'Listening… tap the mic to finish' : mic === 'transcribing' ? 'Transcribing…' : 'Ask or tell me something…'
+                }
                 className="min-w-0 flex-1 rounded-full bg-surface-2 px-4 py-3 font-semibold text-ink outline-none placeholder:text-ink-faint"
               />
               <button
