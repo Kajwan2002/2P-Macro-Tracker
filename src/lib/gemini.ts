@@ -5,8 +5,12 @@
 const KEY_STORAGE = 'macro-tracker.gemini-key'
 const MODEL_STORAGE = 'macro-tracker.gemini-model'
 
-/** Cheapest current model with a free tier. Editable in the chat settings. */
-export const DEFAULT_MODEL = 'gemini-3.5-flash-lite'
+/**
+ * Stable "flash" model with a free tier. The cheaper flash-lite models were too
+ * weak at using tools reliably (claimed actions it never ran, mixed up
+ * profiles). Editable in the chat settings.
+ */
+export const DEFAULT_MODEL = 'gemini-3.6-flash'
 
 function read(key: string): string {
   try {
@@ -40,6 +44,7 @@ export interface Content {
 export interface Schema {
   type: 'STRING' | 'NUMBER' | 'BOOLEAN' | 'ARRAY' | 'OBJECT'
   description?: string
+  enum?: string[]
   items?: Schema
   properties?: Record<string, Schema>
   required?: string[]
@@ -94,7 +99,17 @@ interface AskOptions {
   runTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>
 }
 
-const MAX_TOOL_ROUNDS = 5
+const MAX_TOOL_ROUNDS = 6
+
+/**
+ * Does this reply say something was changed? Used to catch the model claiming
+ * "done" when it never actually called a tool.
+ */
+const CLAIMS_ACTION =
+  /✅|\b(?:i(?:'ve|’ve| have)?|we(?:'ve|’ve| have)?)\s+(?:just\s+|now\s+|successfully\s+)?(?:deleted|removed|logged|added|saved|updated|changed|created|recorded|marked|split|edited|set)\b|\b(?:has|have|was|were)\s+(?:been\s+)?(?:deleted|removed|logged|added|saved|updated|created|recorded|marked|edited)\b|\ball done\b|^\s*(?:ok(?:ay)?|sure|done|got it|will do|no problem)[.! ]*$/i
+
+const NO_ACTION_NUDGE =
+  'You replied without calling any tool, so nothing in the app has changed. If I asked for a change, call the right tool now (set the profile argument explicitly). If I did not ask for a change, answer without claiming anything was done.'
 
 function endpoint(): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(getGeminiModel())}:generateContent`
@@ -138,6 +153,7 @@ export async function askGemini(opts: AskOptions): Promise<string> {
   if (opts.image) userParts.push({ inlineData: { mimeType: opts.image.mimeType, data: opts.image.data } })
   const contents: Content[] = [...opts.history, { role: 'user', parts: userParts }]
   const notes: string[] = []
+  let nudged = false
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const res = await fetch(url, {
@@ -147,7 +163,7 @@ export async function askGemini(opts: AskOptions): Promise<string> {
         systemInstruction: { parts: [{ text: opts.system }] },
         contents,
         tools: [{ functionDeclarations: opts.tools }],
-        generationConfig: { temperature: 0.6, maxOutputTokens: 800 },
+        generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
       }),
     })
     const json = await res.json().catch(() => ({}))
@@ -159,6 +175,17 @@ export async function askGemini(opts: AskOptions): Promise<string> {
 
     if (calls.length === 0) {
       const text = parts.map((p) => (typeof p.text === 'string' ? p.text : '')).join('').trim()
+
+      // The model says it did something, but no tool ran: don't believe it.
+      if (notes.length === 0 && CLAIMS_ACTION.test(text)) {
+        if (!nudged) {
+          nudged = true
+          contents.push({ role: 'model', parts: [{ text }] }, { role: 'user', parts: [{ text: NO_ACTION_NUDGE }] })
+          continue
+        }
+        return '⚠️ I said I did it, but nothing was actually changed in the app. Please try again — naming the item (and who it’s for) helps.'
+      }
+
       return [text, ...notes].filter(Boolean).join('\n\n') || 'Hmm, I got an empty answer — try rephrasing?'
     }
 

@@ -20,7 +20,7 @@ import {
   updateProfile,
   updateQuickMeal,
 } from '@/db/repo'
-import type { Ingredient, Profile } from '@/db/types'
+import type { Ingredient, LogEntry, Profile } from '@/db/types'
 import { lastNDays, todayStr } from '@/lib/dates'
 import type { FunctionDeclaration, Schema, ToolResult } from '@/lib/gemini'
 import {
@@ -51,20 +51,26 @@ export async function buildSystemPrompt(): Promise<string> {
   const byId = new Map(ingredients.map((i) => [i.id, i]))
   const today = todayStr()
 
-  let today_ = 'No profile yet.'
-  if (profile) {
-    const entries = await db.logEntries.where('[profileId+date]').equals([profile.id, today]).toArray()
+  const other = profiles.find((p) => p.id !== profile?.id)
+
+  // One block per person, with entry ids so a delete/edit doesn't need a lookup first.
+  const blocks: string[] = []
+  for (const p of profiles) {
+    const entries = await db.logEntries.where('[profileId+date]').equals([p.id, today]).toArray()
     const t = dayTotals(entries)
-    today_ = [
-      `Active profile: ${profile.name}`,
-      `Daily targets: ${profile.kcalTarget} kcal, ${profile.proteinTarget} g protein, ${profile.carbsTarget} g carbs, ${profile.fatTarget} g fat`,
-      `Eaten so far today: ${fmtKcal(t.kcal)} kcal, ${round1(t.protein)} g protein, ${round1(t.carbs)} g carbs, ${round1(t.fat)} g fat`,
-      `Remaining today: ${fmtKcal(profile.kcalTarget - t.kcal)} kcal, ${round1(profile.proteinTarget - t.protein)} g protein, ${round1(profile.carbsTarget - t.carbs)} g carbs, ${round1(profile.fatTarget - t.fat)} g fat`,
-      entries.length
-        ? `Logged today: ${entries.map((e) => `${e.name} (${e.kcal} kcal, P${e.protein})`).join('; ')}`
-        : 'Nothing logged yet today.',
-    ].join('\n')
+    blocks.push(
+      [
+        `${p.name.toUpperCase()}${p.id === profile?.id ? ' (active — the person chatting)' : ''}`,
+        `  Daily targets: ${p.kcalTarget} kcal, ${p.proteinTarget} g protein, ${p.carbsTarget} g carbs, ${p.fatTarget} g fat`,
+        `  Eaten so far today: ${fmtKcal(t.kcal)} kcal, ${round1(t.protein)} g protein, ${round1(t.carbs)} g carbs, ${round1(t.fat)} g fat`,
+        `  Remaining today: ${fmtKcal(p.kcalTarget - t.kcal)} kcal, ${round1(p.proteinTarget - t.protein)} g protein, ${round1(p.carbsTarget - t.carbs)} g carbs, ${round1(p.fatTarget - t.fat)} g fat`,
+        entries.length
+          ? `  Logged today: ${entries.map((e) => `“${e.name}” (${e.kcal} kcal, P${e.protein}, id ${e.id})`).join('; ')}`
+          : '  Nothing logged yet today.',
+      ].join('\n'),
+    )
   }
+  const today_ = blocks.join('\n') || 'No profile yet.'
 
   const ing = ingredients
     .map((i) => `${i.name} [${i.kcal} kcal, P${i.protein} C${i.carbs} F${i.fat} per 100 g${i.pieceGrams ? `; 1 ${i.pieceLabel || 'piece'} = ${i.pieceGrams} g` : ''}]`)
@@ -82,7 +88,14 @@ export async function buildSystemPrompt(): Promise<string> {
 
   return `You are the assistant inside a personal macro-tracking app. You can read AND change the user's data with your tools. Be brief, practical and friendly.
 Reply in plain text only — no markdown, no asterisks, no headings. Keep answers under ~120 words unless asked for more.
-Today is ${today}. Profiles in this app: ${profiles.map((p) => p.name).join(', ')}.
+Today is ${today}.
+
+WHO IS WHO — read carefully:
+- This app has two people: ${profiles.map((p) => p.name).join(' and ')}.
+- The person chatting with you right now is ${profile?.name ?? 'the active profile'}. "I", "me", "my", "mine" = ${profile?.name ?? 'the active profile'}.
+${other ? `- Any reference to someone else (girlfriend, boyfriend, partner, "she", "he", "her", "him", "for her", "for him", "she had") = ${other.name}.` : ''}
+- EVERY tool that logs, lists or changes a person's data has a required "profile" argument. Always set it explicitly to the right person's name. Never guess: if it is unclear who ate something, ask.
+- If both people ate a saved meal together, call split_meal ONCE (it creates both people's entries). Do not also call log_meal for them.
 
 ${today_}
 
@@ -95,12 +108,14 @@ How to work:
 - Refer to ingredients, meals and quick meals by NAME in tool calls; the app matches names for you. If a tool says several items match, ask the user which one.
 - Do what the user asks directly — no need to ask permission for adds, edits or deletes they clearly requested. Do NOT change data they didn't ask you to change, and never log food just because it was discussed.
 - Deleting an ingredient that is used in meals needs the user's go-ahead: if the tool reports it, tell the user which meals use it and only retry with force=true after they say yes.
-- To edit or delete a logged entry, call list_log_entries first to get its id.
+- "Delete/remove the X I logged / from today / from my day" = delete_log_entry (the dashboard log). "Delete my X meal / recipe" = delete_meal (the saved recipe). If it is ambiguous, ask which one.
+- delete_log_entry and update_log_entry work by name + profile + date (the ids shown above are optional). For another day, call list_log_entries first.
+- NEVER say something was deleted, logged, added or changed unless you called the tool and it returned ok. If a tool fails, say so plainly. A change only counts if a tool ran.
 - If the user wants a meal made from ingredients that don't exist yet, add those ingredients first (typical nutrition per 100 g from your own knowledge — no web), then create the meal.
 - For "what should I eat" questions, suggest realistic ideas that fit the REMAINING macros, preferring saved ingredients/meals, with rough portions in grams.
 - For a photo or a described food, estimate macros for the portion and say it's an estimate.
 - After using tools, confirm in one short sentence what changed. The app also shows a ✅ line for each change.
-- Tools act on the active profile unless you pass the profile name. Dates are YYYY-MM-DD and default to today.`
+- Dates are YYYY-MM-DD and default to today.`
 }
 
 /* ---------------------------------- schema -------------------------------- */
@@ -109,7 +124,7 @@ const str_ = (description: string): Schema => ({ type: 'STRING', description })
 const num_ = (description: string): Schema => ({ type: 'NUMBER', description })
 const bool_ = (description: string): Schema => ({ type: 'BOOLEAN', description })
 
-const PROFILE = str_('Profile name (e.g. "Partner"). Omit for the active profile.')
+const PROFILE = str_('REQUIRED. Which person this is for — the exact profile name.')
 const DATE = str_('Date as YYYY-MM-DD. Omit for today.')
 
 const macros = (suffix: string) => ({
@@ -211,66 +226,104 @@ export const TOOLS: FunctionDeclaration[] = [
     'log_entry',
     'Log a food by its macros for the whole portion eaten.',
     { name: str_('Short food name'), ...macros('for the whole portion'), date: DATE, profile: PROFILE },
-    ['name', 'kcal', 'protein', 'carbs', 'fat'],
+    ['profile', 'name', 'kcal', 'protein', 'carbs', 'fat'],
   ),
   tool(
     'log_ingredient',
     'Log a saved ingredient by weight.',
     { ingredient: str_('Saved ingredient name'), grams: num_('Grams eaten'), date: DATE, profile: PROFILE },
-    ['ingredient', 'grams'],
+    ['profile', 'ingredient', 'grams'],
   ),
   tool(
     'log_meal',
-    'Log a saved meal (recipe) for one person.',
+    'Log a saved meal (recipe) for ONE person. If two people ate it, use split_meal instead.',
     {
       meal: str_('Saved meal name'),
       portion_percent: num_('Percent of the WHOLE recipe eaten (default 100)'),
       date: DATE,
       profile: PROFILE,
     },
-    ['meal'],
+    ['profile', 'meal'],
   ),
   tool(
     'split_meal',
-    'Log a saved meal split between the two profiles by percent of the whole recipe.',
+    'Log a saved meal eaten by BOTH people, split by percent of the whole recipe. Creates an entry for each person.',
     {
       meal: str_('Saved meal name'),
-      percent: num_('Percent of the whole recipe for the named profile; the other profile gets the rest'),
+      percent: num_('Percent of the whole recipe that the person named in "profile" ate; the other person gets the rest'),
       date: DATE,
-      profile: PROFILE,
+      profile: str_('REQUIRED. The person whose share is "percent" — the exact profile name.'),
     },
-    ['meal', 'percent'],
+    ['profile', 'meal', 'percent'],
   ),
   tool(
     'list_log_entries',
-    'List what was logged on a day (with ids), to find an entry to edit or delete.',
+    'List what one person logged on a day (with ids).',
     { date: DATE, profile: PROFILE },
+    ['profile'],
   ),
   tool(
     'update_log_entry',
-    'Edit a logged entry by id (from list_log_entries). Only pass the fields to change.',
-    { id: str_('Entry id'), name: str_('New name'), ...macros('for the entry') },
-    ['id'],
+    'Edit something in the dashboard log (found by name for a given person and day). Only pass the fields to change.',
+    {
+      name: str_('Name of the logged entry to edit (as shown in the log)'),
+      profile: PROFILE,
+      date: DATE,
+      id: str_('Optional exact entry id, to disambiguate'),
+      new_name: str_('New name'),
+      ...macros('for the entry'),
+    },
+    ['profile', 'name'],
   ),
-  tool('delete_log_entry', 'Delete a logged entry by id (from list_log_entries).', { id: str_('Entry id') }, ['id']),
+  tool(
+    'delete_log_entry',
+    'Delete something from the dashboard log (a food/meal that was LOGGED for a person on a day). Not for deleting saved recipes — use delete_meal for that.',
+    {
+      name: str_('Name of the logged entry to delete (as shown in the log)'),
+      profile: PROFILE,
+      date: DATE,
+      id: str_('Optional exact entry id, to disambiguate'),
+    },
+    ['profile', 'name'],
+  ),
   // tracking
-  tool('log_weight', 'Record body weight.', { kg: num_('Weight in kg'), date: DATE, profile: PROFILE }, ['kg']),
+  tool('log_weight', 'Record body weight.', { kg: num_('Weight in kg'), date: DATE, profile: PROFILE }, ['profile', 'kg']),
   tool(
     'set_cheat_day',
     'Mark or unmark a day as a cheat day.',
     { date: DATE, on: bool_('true to mark (default), false to unmark'), profile: PROFILE },
+    ['profile'],
   ),
   tool(
     'update_targets',
     'Change daily targets. Only pass the ones to change.',
     { ...macros('per day'), profile: PROFILE },
+    ['profile'],
   ),
   tool(
     'get_daily_totals',
     'Read per-day eaten totals for recent days, to answer questions about progress.',
     { days: num_('How many days back, including today (default 7, max 31)'), profile: PROFILE },
+    ['profile'],
   ),
 ]
+
+/** The tools, with the "profile" argument limited to the real profile names. */
+export async function buildTools(): Promise<FunctionDeclaration[]> {
+  const names = (await db.profiles.orderBy('sortOrder').toArray()).map((p) => p.name)
+  if (names.length === 0) return TOOLS
+  return TOOLS.map((t) =>
+    t.parameters.properties.profile
+      ? {
+          ...t,
+          parameters: {
+            ...t.parameters,
+            properties: { ...t.parameters.properties, profile: { ...t.parameters.properties.profile, enum: names } },
+          },
+        }
+      : t,
+  )
+}
 
 /* --------------------------------- helpers -------------------------------- */
 
@@ -307,6 +360,26 @@ async function profileFor(a: Args): Promise<Profile | { error: string }> {
   const s = await getSettings()
   const p = profiles.find((x) => x.id === s.activeProfileId) ?? profiles[0]
   return p ?? { error: 'no profile exists' }
+}
+
+/** Find one logged entry: by exact id, or by name for a person + day. */
+async function findEntry(a: Args): Promise<{ entry: LogEntry; who: string } | { error: string }> {
+  const id = str(a.id)
+  if (id) {
+    const e = await db.logEntries.get(id)
+    if (e) {
+      const p = await db.profiles.get(e.profileId)
+      return { entry: e, who: p?.name ?? 'someone' }
+    }
+  }
+  const p = await profileFor(a)
+  if ('error' in p) return p
+  const date = dateArg(a)
+  const rows = await db.logEntries.where('[profileId+date]').equals([p.id, date]).toArray()
+  if (rows.length === 0) return { error: `${p.name} has nothing logged on ${date}` }
+  const f = find(rows, str(a.name), 'logged entry')
+  if ('error' in f) return { error: `${f.error} for ${p.name} on ${date}. Logged: ${rows.map((r) => r.name).join('; ')}` }
+  return { entry: f.item, who: p.name }
 }
 
 const fmtM = (m: Macros) => `${Math.round(m.kcal)} kcal · P ${round1(m.protein)} · C ${round1(m.carbs)} · F ${round1(m.fat)}`
@@ -510,23 +583,24 @@ export async function runTool(name: string, a: Args): Promise<ToolResult> {
       }
     }
     case 'update_log_entry': {
-      const e = await db.logEntries.get(str(a.id))
-      if (!e) return fail('No entry with that id — call list_log_entries first')
+      const r = await findEntry(a)
+      if ('error' in r) return fail(r.error)
+      const e = r.entry
       const m = {
         kcal: has(a, 'kcal') ? num(a.kcal) : e.kcal,
         protein: has(a, 'protein') ? num(a.protein) : e.protein,
         carbs: has(a, 'carbs') ? num(a.carbs) : e.carbs,
         fat: has(a, 'fat') ? num(a.fat) : e.fat,
       }
-      const label = str(a.name) || e.name
+      const label = str(a.new_name) || e.name
       await updateLogEntry(e.id, { name: label, macros: m })
-      return done(`Updated “${label}” (${fmtM(m)})`)
+      return done(`Updated “${label}” for ${r.who} (${fmtM(m)})`)
     }
     case 'delete_log_entry': {
-      const e = await db.logEntries.get(str(a.id))
-      if (!e) return fail('No entry with that id — call list_log_entries first')
-      await deleteLogEntry(e.id)
-      return done(`Deleted logged entry “${e.name}” (${e.date})`)
+      const r = await findEntry(a)
+      if ('error' in r) return fail(r.error)
+      await deleteLogEntry(r.entry.id)
+      return done(`Deleted “${r.entry.name}” from ${r.who}’s log (${r.entry.date})`)
     }
 
     /* tracking */

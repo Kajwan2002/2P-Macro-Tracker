@@ -18,7 +18,7 @@ import {
 } from '@/lib/gemini'
 import { blobToBase64, canRecord, startRecording, type Recording } from '@/lib/recorder'
 import { canSpeak, speak, stopSpeaking } from '@/lib/speech'
-import { buildSystemPrompt, runTool, TOOLS } from './assistant'
+import { buildSystemPrompt, buildTools, runTool } from './assistant'
 import { GeminiKeySheet } from './GeminiKeySheet'
 
 const HISTORY_LIMIT = 20
@@ -28,10 +28,29 @@ const SUGGESTIONS = [
   'Add chicken thigh, raw to my ingredients',
 ]
 
+/**
+ * Drop the app's "✅ …" confirmation lines from what the model sees of its own
+ * past replies. Otherwise it learns to imitate them and write "✅ Deleted"
+ * itself without ever calling a tool.
+ */
+function withoutConfirmations(text: string): string {
+  return text
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('✅'))
+    .join('\n')
+    .trim()
+}
+
 function toHistory(messages: ChatMessage[]): Content[] {
   const turns: Content[] = messages.slice(-HISTORY_LIMIT).map((m) => ({
     role: m.role,
-    parts: [{ text: (m.hadImage ? '[sent a photo] ' : '') + (m.text || '…') }],
+    parts: [
+      {
+        text:
+          (m.hadImage ? '[sent a photo] ' : '') +
+          ((m.role === 'model' ? withoutConfirmations(m.text) : m.text) || '…'),
+      },
+    ],
   }))
   while (turns.length && turns[0].role === 'model') turns.shift()
   return turns
@@ -129,7 +148,7 @@ export function ChatPage() {
         history: toHistory(prior),
         text,
         image: attached,
-        tools: TOOLS,
+        tools: await buildTools(),
         runTool,
       })
       await addChatMessage('model', reply)
