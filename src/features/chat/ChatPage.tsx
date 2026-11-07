@@ -15,6 +15,7 @@ import {
   type ChatImage,
   type Content,
 } from '@/lib/gemini'
+import { canSpeak, speak, stopSpeaking } from '@/lib/speech'
 import { buildSystemPrompt, runTool, TOOLS } from './assistant'
 import { GeminiKeySheet } from './GeminiKeySheet'
 
@@ -44,8 +45,12 @@ export function ChatPage() {
   const [image, setImage] = useState<(ChatImage & { preview: string }) | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // stop talking when leaving the page
+  useEffect(() => stopSpeaking, [])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' })
@@ -88,7 +93,19 @@ export function ChatPage() {
     }
   }
 
+  function toggleSpeak(m: ChatMessage) {
+    if (speakingId === m.id) {
+      stopSpeaking()
+      setSpeakingId(null)
+      return
+    }
+    setSpeakingId(m.id)
+    speak(m.text, () => setSpeakingId((cur) => (cur === m.id ? null : cur)))
+  }
+
   async function doClear() {
+    stopSpeaking()
+    setSpeakingId(null)
     await clearChat()
     setConfirmClear(false)
     setError(null)
@@ -156,6 +173,22 @@ export function ChatPage() {
               >
                 {m.hadImage && <div className="mb-0.5 text-xs font-bold opacity-70">📷 Photo</div>}
                 {m.text}
+                {m.role === 'model' && canSpeak && (
+                  <button
+                    type="button"
+                    onClick={() => toggleSpeak(m)}
+                    aria-label={speakingId === m.id ? 'Stop reading' : 'Read aloud'}
+                    className={cn(
+                      'mt-1.5 flex items-center gap-1 text-xs font-bold active:opacity-70',
+                      speakingId === m.id ? 'text-accent' : 'text-ink-faint',
+                    )}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M4 10v4h4l5 4V6l-5 4zM16.5 9a4 4 0 010 6M19 6.5a8 8 0 010 11" />
+                    </svg>
+                    {speakingId === m.id ? 'Stop' : 'Listen'}
+                  </button>
+                )}
               </div>
             ))}
             {busy && (
