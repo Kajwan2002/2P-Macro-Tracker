@@ -10,7 +10,7 @@ import { Screen } from '@/components/Screen'
 import { dayTotals, useActiveProfile, useCheatDays, useDayEntries } from '@/db/queries'
 import { setCheatDay } from '@/db/repo'
 import type { LogEntry } from '@/db/types'
-import { dayHeading, isTodayStr, shiftDay, todayStr } from '@/lib/dates'
+import { dayHeading, maxLogDate, shiftDay, todayStr } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
 import { EntryEditSheet } from '@/features/entries/EntryEditSheet'
 import { AddEntrySheet } from './AddEntrySheet'
@@ -52,7 +52,7 @@ export function DashboardPage() {
         label={dayHeading(date)}
         onPrev={() => setDate((d) => shiftDay(d, -1))}
         onNext={() => setDate((d) => shiftDay(d, 1))}
-        nextDisabled={isTodayStr(date)}
+        nextDisabled={date >= maxLogDate()}
       />
 
       {isCheat ? (

@@ -9,7 +9,7 @@ import { useToast } from '@/components/Toast'
 import { useActiveProfile, useIngredientMap, useProfiles } from '@/db/queries'
 import { addLogEntry, addMealEvent } from '@/db/repo'
 import type { Meal } from '@/db/types'
-import { todayStr } from '@/lib/dates'
+import { maxLogDate, todayStr } from '@/lib/dates'
 import { fmtKcal, mealTotals, scaleMacros, type Macros } from '@/lib/macros'
 import { accentById } from '@/theme/accents'
 
@@ -155,7 +155,7 @@ export function LogMealSheet({ open, onClose, meal, onLogged }: LogMealSheetProp
           <input
             type="date"
             value={date}
-            max={todayStr()}
+            max={maxLogDate()}
             onChange={(e) => setDate(e.target.value)}
             className="rounded-2xl bg-surface-2 px-3 py-2.5 font-bold text-ink outline-none"
           />

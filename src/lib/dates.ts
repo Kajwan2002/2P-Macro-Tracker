@@ -1,4 +1,4 @@
-import { addDays, format, isToday, isYesterday, parseISO } from 'date-fns'
+import { addDays, format, isToday, isTomorrow, isYesterday, parseISO } from 'date-fns'
 
 // Dates are stored as plain "YYYY-MM-DD" strings so there is never timezone drift.
 export type DateStr = string
@@ -20,10 +20,19 @@ export function isTodayStr(date: DateStr): boolean {
   return date === todayStr()
 }
 
+/** How many days ahead you may log (1 = tomorrow). Raise this to plan further out. */
+export const MAX_DAYS_AHEAD = 1
+
+/** the furthest day you can log for */
+export function maxLogDate(): DateStr {
+  return shiftDay(todayStr(), MAX_DAYS_AHEAD)
+}
+
 export function dayHeading(date: DateStr): string {
   const d = parseISO(date)
   if (isToday(d)) return 'Today'
   if (isYesterday(d)) return 'Yesterday'
+  if (isTomorrow(d)) return 'Tomorrow'
   return format(d, 'EEEE, d MMM')
 }
 
