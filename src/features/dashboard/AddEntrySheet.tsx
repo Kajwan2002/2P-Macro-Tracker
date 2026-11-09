@@ -58,6 +58,7 @@ export function AddEntrySheet({ open, onClose, profileId, date }: AddEntrySheetP
         <LogMealSheet
           open={!!logMeal}
           meal={logMeal}
+          initialDate={date}
           onClose={() => setLogMeal(null)}
           onLogged={() => {
             setLogMeal(null)

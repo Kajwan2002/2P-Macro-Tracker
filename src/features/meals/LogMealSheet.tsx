@@ -17,13 +17,15 @@ interface LogMealSheetProps {
   open: boolean
   onClose: () => void
   meal: Meal
+  /** day to log for; defaults to today (the dashboard passes the day being viewed) */
+  initialDate?: string
   onLogged?: () => void
 }
 
 type Who = 'single' | 'split'
 type Mode = 'pct' | 'grams'
 
-export function LogMealSheet({ open, onClose, meal, onLogged }: LogMealSheetProps) {
+export function LogMealSheet({ open, onClose, meal, initialDate, onLogged }: LogMealSheetProps) {
   const toast = useToast()
   const byId = useIngredientMap()
   const profiles = useProfiles()
@@ -36,7 +38,7 @@ export function LogMealSheet({ open, onClose, meal, onLogged }: LogMealSheetProp
   const mealGrams = Math.round(totals.grams) || 0
   const canSplit = (profiles?.length ?? 0) === 2
 
-  const [date, setDate] = useState(todayStr())
+  const [date, setDate] = useState(initialDate ?? todayStr())
   const [who, setWho] = useState<Who>('single')
   const [singleId, setSingleId] = useState<string | undefined>(active?.id)
   const [mode, setMode] = useState<Mode>('pct')
