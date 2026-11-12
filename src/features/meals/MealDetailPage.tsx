@@ -4,6 +4,7 @@ import { Button } from '@/components/Button'
 import { MacroLine } from '@/components/MacroBits'
 import { Screen } from '@/components/Screen'
 import { useIngredientMap, useMeal } from '@/db/queries'
+import { fmtAmount } from '@/lib/amount'
 import { fmtKcal, itemMacros, mealTotals } from '@/lib/macros'
 import { LogMealSheet } from './LogMealSheet'
 
@@ -66,7 +67,7 @@ export function MealDetailPage() {
             >
               <div className="min-w-0">
                 <div className="truncate font-semibold text-ink">{ing?.name ?? 'Deleted ingredient'}</div>
-                <div className="text-xs text-ink-faint">{it.grams} g</div>
+                <div className="text-xs text-ink-faint">{fmtAmount(it.grams, ing)}</div>
               </div>
               <span className="shrink-0 text-sm font-bold text-ink-soft">{fmtKcal(m.kcal)}</span>
             </div>

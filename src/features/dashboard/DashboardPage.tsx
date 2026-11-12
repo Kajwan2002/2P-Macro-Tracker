@@ -7,9 +7,10 @@ import { PeriodNav } from '@/components/PeriodNav'
 import { ProfileSwitcher } from '@/components/ProfileSwitcher'
 import { Ring } from '@/components/Ring'
 import { Screen } from '@/components/Screen'
-import { dayTotals, useActiveProfile, useCheatDays, useDayEntries } from '@/db/queries'
+import { dayTotals, useActiveProfile, useCheatDays, useDayEntries, useIngredientMap } from '@/db/queries'
 import { setCheatDay } from '@/db/repo'
 import type { LogEntry } from '@/db/types'
+import { entryAmountText } from '@/lib/amount'
 import { dayHeading, maxLogDate, shiftDay, todayStr } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
 import { EntryEditSheet } from '@/features/entries/EntryEditSheet'
@@ -22,6 +23,8 @@ export function DashboardPage() {
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<LogEntry | null>(null)
   const isCheat = useCheatDays(profile?.id)?.has(date) ?? false
+  const ingredientsById = useIngredientMap()
+  const amountText = (e: LogEntry) => entryAmountText(e, ingredientsById)
 
   const totals = dayTotals(entries ?? [])
   const kcalLeft = (profile?.kcalTarget ?? 0) - totals.kcal
@@ -135,6 +138,9 @@ export function DashboardPage() {
                     </span>
                   )}
                 </div>
+                {amountText(e) && (
+                  <div className="mt-0.5 truncate text-xs font-semibold text-ink-soft">{amountText(e)}</div>
+                )}
                 <MacroLine macros={e} className="mt-0.5" />
               </div>
               <span className="shrink-0 font-extrabold text-ink">{fmtKcal(e.kcal)}</span>

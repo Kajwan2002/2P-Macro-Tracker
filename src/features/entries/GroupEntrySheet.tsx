@@ -5,8 +5,10 @@ import { MacroLine } from '@/components/MacroBits'
 import { NumberField } from '@/components/NumberField'
 import { Sheet } from '@/components/Sheet'
 import { useToast } from '@/components/Toast'
+import { useIngredientMap } from '@/db/queries'
 import { deleteLogEntry, updateLogEntry } from '@/db/repo'
 import type { GroupItem, Ingredient, LogEntry } from '@/db/types'
+import { piecesText } from '@/lib/amount'
 import { newId } from '@/lib/id'
 import { fmtKcal, roundMacros, scaleMacros, sumMacros, type Macros } from '@/lib/macros'
 import { AmountField } from '@/features/meals/AmountField'
@@ -36,6 +38,7 @@ const rowMacros = (r: Row): Macros => scaleMacros(r.per, r.grams)
 
 export function GroupEntrySheet({ entry, onClose }: { entry: LogEntry; onClose: () => void }) {
   const toast = useToast()
+  const ingredientsById = useIngredientMap()
   const [name, setName] = useState(entry.name)
   const [rows, setRows] = useState<Row[]>(() => (entry.items ?? []).map(rowFromItem))
   const [adding, setAdding] = useState(false)
@@ -142,7 +145,14 @@ export function GroupEntrySheet({ entry, onClose }: { entry: LogEntry; onClose: 
                   suffix="g"
                 />
                 <span className="text-xs text-ink-faint">
-                  {fmtKcal(rowMacros(r).kcal)} kcal · <MacroLine macros={rowMacros(r)} />
+                  {fmtKcal(rowMacros(r).kcal)} kcal
+                  {piecesText(r.grams, r.ingredientId ? ingredientsById?.get(r.ingredientId) : null) && (
+                    <span className="font-semibold text-ink-soft">
+                      {' '}
+                      · {piecesText(r.grams, r.ingredientId ? ingredientsById?.get(r.ingredientId) : null)}
+                    </span>
+                  )}{' '}
+                  · <MacroLine macros={rowMacros(r)} />
                 </span>
               </div>
             </div>

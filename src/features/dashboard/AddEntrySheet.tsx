@@ -8,6 +8,7 @@ import { useToast } from '@/components/Toast'
 import { useIngredientMap, useMeals, useQuickMeals } from '@/db/queries'
 import { addLogEntry, addQuickMeal, touchQuickMeal } from '@/db/repo'
 import type { Ingredient, Meal, QuickMeal } from '@/db/types'
+import { fmtAmount } from '@/lib/amount'
 import { fmtKcal, macrosForGrams, mealTotals, sumMacros } from '@/lib/macros'
 import { AmountField } from '@/features/meals/AmountField'
 import { IngredientPicker } from '@/features/meals/IngredientPicker'
@@ -149,7 +150,7 @@ function FoodTab({
           {items.map((it, i) => (
             <div key={i} className="flex items-center justify-between gap-2 text-sm">
               <span className="min-w-0 truncate text-ink">
-                {it.ing.name} · <span className="text-ink-faint">{it.grams} g</span>
+                {it.ing.name} · <span className="text-ink-faint">{fmtAmount(it.grams, it.ing)}</span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
                 <span className="font-bold text-ink-faint">

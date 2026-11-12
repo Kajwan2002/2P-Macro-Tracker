@@ -10,6 +10,7 @@ import { useToast } from '@/components/Toast'
 import { useIngredientMap, useMeal } from '@/db/queries'
 import { addMeal, deleteMeal, updateMeal } from '@/db/repo'
 import type { MealItem } from '@/db/types'
+import { piecesText } from '@/lib/amount'
 import { fmtKcal, itemMacros, sumMacros } from '@/lib/macros'
 import { IngredientPicker } from './IngredientPicker'
 
@@ -105,7 +106,12 @@ export function MealBuilderPage() {
               <div className="mt-2 flex items-center gap-3">
                 <NumberField value={it.grams} onChange={(g) => setGrams(idx, g)} suffix="g" className="w-28" />
                 <div className="text-sm">
-                  <div className="font-bold text-ink">{fmtKcal(m.kcal)} kcal</div>
+                  <div className="font-bold text-ink">
+                    {fmtKcal(m.kcal)} kcal
+                    {piecesText(it.grams, ing) && (
+                      <span className="font-semibold text-ink-soft"> · {piecesText(it.grams, ing)}</span>
+                    )}
+                  </div>
                   <MacroLine macros={m} />
                 </div>
               </div>
