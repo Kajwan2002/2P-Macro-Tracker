@@ -9,6 +9,7 @@ import { useIngredientMap, useMeals, useQuickMeals } from '@/db/queries'
 import { addLogEntry, addQuickMeal, touchQuickMeal } from '@/db/repo'
 import type { Ingredient, Meal, QuickMeal } from '@/db/types'
 import { fmtAmount } from '@/lib/amount'
+import { filterByName } from '@/lib/search'
 import { fmtKcal, macrosForGrams, mealTotals, sumMacros } from '@/lib/macros'
 import { AmountField } from '@/features/meals/AmountField'
 import { IngredientPicker } from '@/features/meals/IngredientPicker'
@@ -228,29 +229,40 @@ function AmountStep({
 function MealList({ onPick }: { onPick: (meal: Meal) => void }) {
   const meals = useMeals()
   const byId = useIngredientMap()
+  const [q, setQ] = useState('')
   if (!meals || !byId) return null
   if (meals.length === 0)
     return <EmptyState emoji="🥘" title="No saved meals" hint="Build one in the Meals tab first." />
+  const list = filterByName(meals, q)
 
   return (
-    <div className="flex flex-col">
-      {meals.map((m) => {
-        const t = mealTotals(m, byId).macros
-        return (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => onPick(m)}
-            className="flex items-center justify-between gap-3 border-b border-surface-2 py-3 text-left last:border-0 active:opacity-70"
-          >
-            <div className="min-w-0">
-              <div className="truncate font-semibold text-ink">{m.name}</div>
-              <MacroLine macros={t} className="mt-0.5" />
-            </div>
-            <span className="shrink-0 font-bold text-ink-faint">{fmtKcal(t.kcal)}</span>
-          </button>
-        )
-      })}
+    <div className="flex flex-col gap-2">
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search meals…"
+        className="rounded-2xl bg-surface-2 px-4 py-3 font-semibold text-ink outline-none placeholder:text-ink-faint"
+      />
+      <div className="flex flex-col">
+        {list.map((m) => {
+          const t = mealTotals(m, byId).macros
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onPick(m)}
+              className="flex items-center justify-between gap-3 border-b border-surface-2 py-3 text-left last:border-0 active:opacity-70"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-semibold text-ink">{m.name}</div>
+                <MacroLine macros={t} className="mt-0.5" />
+              </div>
+              <span className="shrink-0 font-bold text-ink-faint">{fmtKcal(t.kcal)}</span>
+            </button>
+          )
+        })}
+        {list.length === 0 && <p className="py-6 text-center text-sm text-ink-faint">No matches</p>}
+      </div>
     </div>
   )
 }
@@ -268,6 +280,7 @@ function QuickTab({
 }) {
   const toast = useToast()
   const quickMeals = useQuickMeals()
+  const [q, setQ] = useState('')
   const [creating, setCreating] = useState(false)
 
   if (creating) {
@@ -303,20 +316,31 @@ function QuickTab({
         />
       ) : (
         <div className="flex flex-col">
-          {quickMeals?.map((q) => (
+          {!!quickMeals?.length && (
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search quick meals…"
+              className="mb-1 rounded-2xl bg-surface-2 px-4 py-3 font-semibold text-ink outline-none placeholder:text-ink-faint"
+            />
+          )}
+          {filterByName(quickMeals ?? [], q).map((qm) => (
             <button
-              key={q.id}
+              key={qm.id}
               type="button"
-              onClick={() => log(q)}
+              onClick={() => log(qm)}
               className="flex items-center justify-between gap-3 border-b border-surface-2 py-3 text-left last:border-0 active:opacity-70"
             >
               <div className="min-w-0">
-                <div className="truncate font-semibold text-ink">{q.name}</div>
-                <MacroLine macros={q} className="mt-0.5" />
+                <div className="truncate font-semibold text-ink">{qm.name}</div>
+                <MacroLine macros={qm} className="mt-0.5" />
               </div>
-              <span className="shrink-0 font-bold text-ink-faint">{fmtKcal(q.kcal)}</span>
+              <span className="shrink-0 font-bold text-ink-faint">{fmtKcal(qm.kcal)}</span>
             </button>
           ))}
+          {!!quickMeals?.length && filterByName(quickMeals, q).length === 0 && (
+            <p className="py-6 text-center text-sm text-ink-faint">No matches</p>
+          )}
         </div>
       )}
     </div>
