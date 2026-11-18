@@ -83,6 +83,9 @@ export function friendlyError(err: unknown): string {
     if (err.status === 403) return 'The API key isn’t allowed to use this model. Check the key and model in ⚙.'
     if (err.status === 404) return 'That model name wasn’t found. Change the model in ⚙.'
     if (err.status === 429) return 'Free-tier limit reached — wait a minute and try again.'
+    if (err.status === 503 || err.status === 500 || err.status === 502 || err.status === 504) {
+      return 'Google’s Gemini servers are overloaded right now (every model I tried was busy). It’s temporary — try again in a minute or two.'
+    }
     return `Gemini error (${err.status}): ${err.message}`
   }
   return 'Couldn’t reach Gemini. Are you online?'
@@ -111,18 +114,54 @@ const CLAIMS_ACTION =
 const NO_ACTION_NUDGE =
   'You replied without calling any tool, so nothing in the app has changed. If I asked for a change, call the right tool now (set the profile argument explicitly). If I did not ask for a change, answer without claiming anything was done.'
 
-function endpoint(): string {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(getGeminiModel())}:generateContent`
+function endpoint(model: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+}
+
+/** Tried in this order after the model chosen in settings, if Google says it is busy or gone. */
+const FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']
+
+/** Busy / overloaded / rate-limited / not found: worth trying another model or waiting a moment. */
+const TRY_NEXT = new Set([404, 429, 500, 502, 503, 504])
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** The chosen model first, then the others (no duplicates). */
+function modelChain(): string[] {
+  const first = getGeminiModel()
+  return [first, ...FALLBACK_MODELS.filter((m) => m !== first)]
+}
+
+/**
+ * POST to Gemini. If a model answers "high demand" (503) and friends, move on to
+ * the next model in `chain`, and make a second pass after a short pause before
+ * giving up. Any other error (bad key, bad request…) is thrown straight away.
+ */
+async function generate(body: unknown, chain: string[]): Promise<{ json: Record<string, unknown>; model: string }> {
+  const key = getGeminiKey()
+  if (!key) throw new GeminiError('No API key', 400)
+  let last: GeminiError | null = null
+  for (let pass = 0; pass < 2; pass++) {
+    if (pass > 0) await sleep(2500)
+    for (const model of chain) {
+      const res = await fetch(endpoint(model), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (res.ok) return { json, model }
+      last = new GeminiError(json?.error?.message ?? res.statusText, res.status)
+      if (!TRY_NEXT.has(res.status)) throw last
+    }
+  }
+  throw last ?? new GeminiError('No response', 503)
 }
 
 /** Turn a short voice clip (WAV, base64) into text. The clip is never stored. */
 export async function transcribeAudio(wavBase64: string): Promise<string> {
-  const key = getGeminiKey()
-  if (!key) throw new GeminiError('No API key', 400)
-  const res = await fetch(endpoint(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify({
+  const { json } = await generate(
+    {
       contents: [
         {
           role: 'user',
@@ -135,19 +174,19 @@ export async function transcribeAudio(wavBase64: string): Promise<string> {
         },
       ],
       generationConfig: { temperature: 0, maxOutputTokens: 400 },
-    }),
-  })
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new GeminiError(json?.error?.message ?? res.statusText, res.status)
-  const parts: Part[] = json?.candidates?.[0]?.content?.parts ?? []
+    },
+    modelChain(),
+  )
+  const parts: Part[] = (json as { candidates?: { content?: { parts?: Part[] } }[] })?.candidates?.[0]?.content?.parts ?? []
   return parts.map((p) => (typeof p.text === 'string' ? p.text : '')).join('').trim()
 }
 
 /** Send one user turn; runs any tool calls the model makes; returns the final reply. */
 export async function askGemini(opts: AskOptions): Promise<string> {
-  const key = getGeminiKey()
-  if (!key) throw new GeminiError('No API key', 400)
-  const url = endpoint()
+  if (!getGeminiKey()) throw new GeminiError('No API key', 400)
+  // Once a model has answered, stay on it for the rest of this turn: its tool-call
+  // parts (with their internal signatures) are echoed back to the same model.
+  let usedModel: string | null = null
 
   const userParts: Part[] = [{ text: opts.text || 'Here is a photo.' }]
   if (opts.image) userParts.push({ inlineData: { mimeType: opts.image.mimeType, data: opts.image.data } })
@@ -156,18 +195,17 @@ export async function askGemini(opts: AskOptions): Promise<string> {
   let nudged = false
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
+    const { json: raw, model } = await generate(
+      {
         systemInstruction: { parts: [{ text: opts.system }] },
         contents,
         tools: [{ functionDeclarations: opts.tools }],
         generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
-      }),
-    })
-    const json = await res.json().catch(() => ({}))
-    if (!res.ok) throw new GeminiError(json?.error?.message ?? res.statusText, res.status)
+      },
+      usedModel ? [usedModel] : modelChain(),
+    )
+    usedModel = model
+    const json = raw as { candidates?: { content?: Content }[] }
 
     const content: Content | undefined = json?.candidates?.[0]?.content
     const parts: Part[] = content?.parts ?? []
