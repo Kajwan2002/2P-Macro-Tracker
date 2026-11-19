@@ -210,6 +210,10 @@ function WeekCard({ profile, date }: { profile: Profile; date: string }) {
   const daysToGo = isThisWeek ? differenceInCalendarDays(parseISO(week.to), parseISO(today)) + 1 : 0
   const eatenBeforeToday = [...week.byDay].reduce((s, [d, k]) => (d < today ? s + k : s), 0)
   const perDay = daysToGo ? (budget - eatenBeforeToday) / daysToGo : 0
+  // where you'd be by tonight eating exactly the target every day so far
+  const pace = isThisWeek ? profile.kcalTarget * (8 - daysToGo) : 0
+  const vsPace = eaten - pace
+  const pct = (n: number) => `${Math.min(100, (n / Math.max(1, budget)) * 100)}%`
 
   return (
     <Card className="flex flex-col gap-2 py-4">
@@ -219,12 +223,27 @@ function WeekCard({ profile, date }: { profile: Profile; date: string }) {
           <span className="font-extrabold text-ink">{fmtKcal(eaten)}</span> / {fmtKcal(budget)} kcal
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+      <div className="relative h-2 rounded-full bg-surface-2">
         <div
           className={cn('h-full rounded-full', left < 0 ? 'bg-over' : 'bg-accent')}
-          style={{ width: `${Math.min(100, (eaten / Math.max(1, budget)) * 100)}%` }}
+          style={{ width: pct(eaten) }}
         />
+        {isThisWeek && (
+          <div
+            className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 rounded-full bg-ink"
+            style={{ left: pct(pace) }}
+            aria-hidden
+          />
+        )}
       </div>
+      {isThisWeek && (
+        <div className="text-xs font-semibold text-ink-faint">
+          On pace by tonight: {fmtKcal(pace)} ·{' '}
+          <span className={cn('font-bold', vsPace > 0 ? 'text-over' : 'text-ink')}>
+            {vsPace > 0 ? `${fmtKcal(vsPace)} over` : `${fmtKcal(-vsPace)} under`}
+          </span>
+        </div>
+      )}
       <div className="text-xs font-semibold text-ink-faint">
         {left >= 0 ? `${fmtKcal(left)} left` : `${fmtKcal(-left)} over`}
         {daysToGo > 0 &&
