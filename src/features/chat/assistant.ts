@@ -1,5 +1,13 @@
 import { db } from '@/db/db'
-import { dayTotals, loadCoach, loadWeekKcal, loadWeekTotals, type CoachState } from '@/db/queries'
+import {
+  dayTotals,
+  loadCoach,
+  loadMaintenanceEstimate,
+  loadWeekKcal,
+  loadWeekTotals,
+  resolveMaintenance,
+  type CoachState,
+} from '@/db/queries'
 import {
   addIngredient,
   applyCoachTarget,
@@ -45,13 +53,15 @@ type Args = Record<string, unknown>
 /** Week, cheat day, weight and coach lines for one person's context block. */
 async function progressLines(p: Profile): Promise<string[]> {
   const today = todayStr()
-  const [week, cheat, coach, weights] = await Promise.all([
+  const [week, cheat, coach, weights, estimate] = await Promise.all([
     loadWeekKcal(p.id, today),
     db.cheatDays.get(`${p.id}:${today}`),
     loadCoach(p),
     db.weights.where('profileId').equals(p.id).toArray(),
+    loadMaintenanceEstimate(p.id),
   ])
   weights.sort((x, y) => x.date.localeCompare(y.date))
+  const m = resolveMaintenance(p, estimate)
   const budget = p.kcalTarget * 7
   const eaten = Math.round([...week.byDay.values()].reduce((s, k) => s + k, 0))
   const dayNo = Math.round((Date.parse(today) - Date.parse(week.from)) / 86_400_000) + 1
@@ -59,7 +69,7 @@ async function progressLines(p: Profile): Promise<string[]> {
   const trend = weightTrend(weights)
   const latest = weights[weights.length - 1]
   return [
-    `  Maintenance: ${p.maintenanceKcal ? `${p.maintenanceKcal} kcal/day` : 'not set'} · coach goal: ${p.goalKgPerWeek != null ? `lose ${p.goalKgPerWeek} kg/week` : 'off'}`,
+    `  Maintenance (burn rate): ${m ? `${m.kcal} kcal/day (${m.source === 'estimate' ? 'auto-estimated from the last 4 weeks of food + weight' : 'saved fallback — not enough data to estimate'})` : 'unknown — not enough data yet'} · coach goal: ${p.goalKgPerWeek != null ? `lose ${p.goalKgPerWeek} kg/week` : 'off'}`,
     `  This week (${week.from} to ${week.to}, cheat estimates included): ${fmtKcal(eaten)} of ${fmtKcal(budget)} kcal budget; on pace by tonight would be ${fmtKcal(pace)} (${eaten > pace ? `${fmtKcal(eaten - pace)} over` : `${fmtKcal(pace - eaten)} under`})`,
     cheat
       ? `  Today is a CHEAT DAY — current whole-day estimate: ${cheat.kcal ? `${cheat.kcal} kcal` : 'none yet'}`
@@ -164,7 +174,7 @@ How to work:
 Cheat days, weekly budget and coach (features of this app — explain them if asked):
 - A cheat day isn't judged against the daily target, but it still counts toward the week, using a rough estimate of the whole day's calories when one is set (the higher of estimate and logged food counts).
 - Brain dump on a cheat day ("I had 2 slices of pizza, a beer, some fries…"): estimate each item with realistic portions (restaurant portions are big — round up rather than down), add anything already logged that day, and call set_cheat_day ONCE with kcal = the whole day's total. Do NOT log the items as separate entries unless the user asks. Reply with a short itemised list (item ≈ kcal) and the total, and say it's an estimate. If they add more food later, call set_cheat_day again with the NEW TOTAL (the current estimate is shown above for today; for other days use get_daily_totals).
-- Weekly budget = daily target × 7 (Mon–Sun). Weekly balance in History compares each week to maintenance (or the target if no maintenance is set) on tracked days only.
+- Weekly budget = daily target × 7 (Mon–Sun). Maintenance (burn rate) is estimated automatically from the last 4 weeks of tracked food + the weight trend; History's weekly balance compares each week to the burn estimated at that time, on tracked days only (negative = fat lost).
 - The coach (when a goal is set) estimates maintenance from logged food + the weight trend and suggests a new target at most once a week, max 250 kcal per change. If the user asks to apply it, call apply_coach_target — never set kcal yourself to mimic it.
 - For "how am I doing / how was my week / am I on track" use the numbers above, and get_progress for older weeks and weight history. Fat loss ≈ 7,700 kcal per kg; judge weight by the trend, not single weigh-ins.`
 }
@@ -355,7 +365,7 @@ export const TOOLS: FunctionDeclaration[] = [
     'Change daily targets and/or maintenance (calories burned per day). Only pass the ones to change.',
     {
       ...macros('per day'),
-      maintenance: num_('Maintenance kcal/day (TDEE); 0 clears it'),
+      maintenance: num_('Fallback maintenance kcal/day, used only when there is not enough data to estimate it automatically; 0 clears it'),
       goal: num_('Coach goal: kg to lose per week (0 = maintain)'),
       profile: PROFILE,
     },
@@ -725,16 +735,25 @@ export async function runTool(name: string, a: Args): Promise<ToolResult> {
         db.weights.where('profileId').equals(p.id).toArray(),
       ])
       weights.sort((x, y) => x.date.localeCompare(y.date))
-      const base = p.maintenanceKcal || p.kcalTarget
       const trend = weightTrend(weights)
       return {
         response: {
           ok: true,
           profile: p.name,
-          weeklyBalanceVs: p.maintenanceKcal ? `maintenance ${base}/day` : `target ${base}/day (no maintenance set)`,
+          note: 'balance = kcal eaten minus that week\'s burn rate × tracked days (negative = fat lost). vs says what it was compared to.',
           weeks: weeks.map((w) => {
+            const burn = w.burn ?? p.maintenanceKcal ?? null
+            const base = burn ?? p.kcalTarget
             const diff = Math.round(w.kcal - base * w.daysTracked)
-            return { from: w.from, to: w.to, kcal: Math.round(w.kcal), daysTracked: w.daysTracked, balance: diff, approxKg: round1(diff / KCAL_PER_KG) }
+            return {
+              from: w.from,
+              to: w.to,
+              kcal: Math.round(w.kcal),
+              daysTracked: w.daysTracked,
+              vs: w.burn ? `estimated burn ${w.burn}/day` : burn ? `saved maintenance ${burn}/day` : `target ${base}/day`,
+              balance: diff,
+              approxKg: burn ? round1(diff / KCAL_PER_KG) : null,
+            }
           }),
           weighIns: weights.filter((w) => w.date >= shiftDay(todayStr(), -56)).map((w) => ({ date: w.date, kg: w.kg })),
           trend: trend && { avg7: round1(trend.avg7), kgPerWeek: trend.perWeek === null ? null : Math.round(trend.perWeek * 100) / 100 },

@@ -210,12 +210,34 @@ export interface WeekTotal {
   kcal: number
   /** days with something logged or a cheat estimate */
   daysTracked: number
+  /** burn rate estimated from the 4 weeks up to this week's end (null with too little data) */
+  burn: number | null
+}
+
+async function sortedWeights(profileId: string): Promise<WeightEntry[]> {
+  const rows = await db.weights.where('profileId').equals(profileId).toArray()
+  return rows.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/** Maintenance from the 4 weeks ending `end`: tracked days' intake + the weight trend. */
+function estimateAt(byDay: Map<DateStr, number>, weights: WeightEntry[], end: DateStr): number | null {
+  const start = shiftDay(end, -26)
+  const kcals = [...byDay].filter(([d, k]) => d >= start && d <= end && k > 0).map(([, k]) => k)
+  return estimateMaintenance(
+    weights.filter((w) => w.date >= start && w.date <= end),
+    kcals,
+  )
 }
 
 /** The last `n` Mon–Sun weeks (newest first), skipping weeks with nothing tracked. */
 export async function loadWeekTotals(profileId: string, n: number): Promise<WeekTotal[]> {
   const [thisMonday] = weekRange(todayStr())
-  const byDay = await countedByDay(profileId, shiftDay(thisMonday, -7 * (n - 1)))
+  // today is usually only half-logged, so burn estimates stop at yesterday
+  const yesterday = shiftDay(todayStr(), -1)
+  const [byDay, weights] = await Promise.all([
+    countedByDay(profileId, shiftDay(thisMonday, -7 * (n - 1) - 27)),
+    sortedWeights(profileId),
+  ])
   const weeks: WeekTotal[] = []
   for (let i = 0; i < n; i++) {
     const mon = shiftDay(thisMonday, -7 * i)
@@ -228,7 +250,8 @@ export async function loadWeekTotals(profileId: string, n: number): Promise<Week
         daysTracked++
       }
     }
-    if (daysTracked) weeks.push({ from: mon, to: sun, kcal, daysTracked })
+    const burn = estimateAt(byDay, weights, sun < yesterday ? sun : yesterday)
+    if (daysTracked) weeks.push({ from: mon, to: sun, kcal, daysTracked, burn })
   }
   return weeks
 }
@@ -237,21 +260,31 @@ export function useWeekTotals(profileId: string | undefined, n: number): WeekTot
   return useLiveQuery(async () => (profileId ? loadWeekTotals(profileId, n) : []), [profileId, n])
 }
 
-async function sortedWeights(profileId: string): Promise<WeightEntry[]> {
-  const rows = await db.weights.where('profileId').equals(profileId).toArray()
-  return rows.sort((a, b) => a.date.localeCompare(b.date))
-}
-
 /** Maintenance estimated from the last 4 weeks of food + weight (null with too little data). */
 export async function loadMaintenanceEstimate(profileId: string): Promise<number | null> {
-  const byDay = await countedByDay(profileId, shiftDay(todayStr(), -27))
-  // today is usually only half-logged — leave it out
-  const days = [...byDay].filter(([d, k]) => d < todayStr() && k > 0).map(([, k]) => k)
-  return estimateMaintenance(await sortedWeights(profileId), days)
+  const yesterday = shiftDay(todayStr(), -1)
+  const [byDay, weights] = await Promise.all([
+    countedByDay(profileId, shiftDay(yesterday, -26)),
+    sortedWeights(profileId),
+  ])
+  return estimateAt(byDay, weights, yesterday)
 }
 
 export function useMaintenanceEstimate(profileId: string | undefined): number | null | undefined {
   return useLiveQuery(async () => (profileId ? loadMaintenanceEstimate(profileId) : null), [profileId])
+}
+
+/**
+ * The maintenance to use: the live estimate whenever there's enough data, else the
+ * number saved on the profile (typed in, or left by the coach), else none.
+ */
+export function resolveMaintenance(
+  profile: Profile,
+  estimate: number | null | undefined,
+): { kcal: number; source: 'estimate' | 'saved' } | null {
+  if (estimate) return { kcal: estimate, source: 'estimate' }
+  if (profile.maintenanceKcal) return { kcal: profile.maintenanceKcal, source: 'saved' }
+  return null
 }
 
 /* --------------------------------- coach -------------------------------- */

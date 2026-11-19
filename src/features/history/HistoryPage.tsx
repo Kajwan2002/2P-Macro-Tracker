@@ -152,25 +152,29 @@ export function HistoryPage() {
   )
 }
 
-/** Each week's total vs. budget — only the days you tracked count, so a
- * forgotten day doesn't show up as a huge deficit. */
+/**
+ * Each week vs. what you burned that week (estimated from the 4 weeks up to it), so
+ * − is fat lost and + fat gained. Only tracked days count, so a forgotten day doesn't
+ * read as a huge deficit. Weeks without enough data fall back to the saved
+ * maintenance, then the target.
+ */
 function WeeklyBalance({ profile }: { profile: Profile }) {
   const weeks = useWeekTotals(profile.id, 8)
   if (!weeks || weeks.length === 0) return null
   const [thisMonday] = weekRange(todayStr())
-  // vs. maintenance = real surplus / deficit; vs. target only says whether you hit the plan
-  const maintenance = profile.maintenanceKcal || null
-  const base = maintenance ?? profile.kcalTarget
+  const anyBurn = weeks.some((w) => w.burn) || !!profile.maintenanceKcal
 
   return (
     <Card className="flex flex-col gap-1">
       <SectionTitle className="px-0">Weekly balance</SectionTitle>
       <p className="mb-1 text-xs text-ink-faint">
-        {maintenance
-          ? `Vs. your maintenance (${fmtKcal(maintenance)}/day) on the days you tracked. − is a real deficit (losing fat), + a surplus (gaining).`
-          : `Vs. your target (${fmtKcal(base)}/day) on the days you tracked. Add your maintenance to the profile in Settings to see your real surplus or deficit.`}
+        {anyBurn
+          ? 'Vs. what you burned that week, estimated from your food and weight on the days you tracked. − is fat lost, + fat gained.'
+          : `Vs. your target (${fmtKcal(profile.kcalTarget)}/day) on the days you tracked, until there's about 2 weeks of food and weigh-ins to estimate your burn rate.`}
       </p>
       {weeks.map((w) => {
+        const burn = w.burn ?? profile.maintenanceKcal ?? null
+        const base = burn ?? profile.kcalTarget
         const diff = Math.round(w.kcal - base * w.daysTracked)
         return (
           <div
@@ -182,7 +186,12 @@ function WeeklyBalance({ profile }: { profile: Profile }) {
                 {w.from === thisMonday ? 'This week' : weekLabel(w.from, w.to)}
               </div>
               <div className="text-[0.65rem] font-semibold text-ink-faint">
-                {fmtKcal(w.kcal)} kcal · {w.daysTracked} day{w.daysTracked === 1 ? '' : 's'} tracked
+                {fmtKcal(w.kcal)} kcal · {w.daysTracked} day{w.daysTracked === 1 ? '' : 's'} ·{' '}
+                {w.burn
+                  ? `burn ≈ ${fmtKcal(w.burn)}`
+                  : burn
+                    ? `saved burn ${fmtKcal(burn)}`
+                    : `vs target ${fmtKcal(base)}`}
               </div>
             </div>
             <div className="shrink-0 text-right">
@@ -190,7 +199,7 @@ function WeeklyBalance({ profile }: { profile: Profile }) {
                 {diff > 0 ? '+' : diff < 0 ? '−' : ''}
                 {fmtKcal(Math.abs(diff))}
               </div>
-              {maintenance && Math.abs(diff) >= 100 && (
+              {burn && Math.abs(diff) >= 100 && (
                 <div className="text-[0.65rem] font-semibold text-ink-faint">
                   ≈ {diff > 0 ? '+' : '−'}
                   {(Math.abs(diff) / KCAL_PER_KG).toFixed(2)} kg

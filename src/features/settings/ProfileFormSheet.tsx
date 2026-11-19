@@ -109,32 +109,25 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
 
         <div>
           <p className="mb-1 px-1 text-[0.7rem] font-bold text-ink-soft">Maintenance</p>
+          <p className="mb-2 px-1 text-xs text-ink-faint">
+            {estimate ? (
+              <>
+                Auto: you burn about{' '}
+                <span className="font-bold text-ink">{fmtKcal(estimate)}</span> kcal/day, estimated
+                from your last 4 weeks of food and weight. It updates by itself and is used by the
+                coach and History.
+              </>
+            ) : (
+              'Calculated automatically once there are about 2 weeks of food logs and weigh-ins (3+ a week). Until then you can enter your own:'
+            )}
+          </p>
           <NumberField
-            label="Calories you burn per day"
+            label={estimate ? 'Fallback (only used without enough data)' : 'Calories you burn per day'}
             value={maintenance}
             onChange={setMaintenance}
             placeholder="optional"
             suffix="kcal"
           />
-          <p className="mt-1.5 px-1 text-xs text-ink-faint">
-            History's weekly balance uses this to show your real surplus or deficit.
-            {estimate ? (
-              <>
-                {' '}
-                From your last 4 weeks of food and weight: ≈{' '}
-                <span className="font-bold text-ink">{fmtKcal(estimate)}</span>.{' '}
-                <button
-                  type="button"
-                  onClick={() => setMaintenance(estimate)}
-                  className="font-bold text-accent"
-                >
-                  Use it
-                </button>
-              </>
-            ) : (
-              ' Log food and weigh in for 2+ weeks and the app will estimate it for you.'
-            )}
-          </p>
         </div>
 
         <div>
