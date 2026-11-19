@@ -15,16 +15,14 @@ import {
   useActiveProfile,
   useCheatDays,
   useDayEntries,
+  useCoach,
   useIngredientMap,
-  useMaintenanceEstimate,
   useWeekKcal,
-  useWeights,
 } from '@/db/queries'
-import { setCheatDay, updateProfile } from '@/db/repo'
+import { applyCoachTarget, setCheatDay } from '@/db/repo'
 import { Button } from '@/components/Button'
 import { useToast } from '@/components/Toast'
-import { coachAdvice, rebalanceMacros } from '@/lib/coach'
-import { weightTrend } from '@/lib/weight'
+import { COACH_MIN_CHANGE, coachHeadline } from '@/lib/coach'
 import type { LogEntry, Profile } from '@/db/types'
 import { entryAmountText } from '@/lib/amount'
 import { dayHeading, maxLogDate, parseISO, shiftDay, todayStr } from '@/lib/dates'
@@ -148,7 +146,7 @@ export function DashboardPage() {
       {profile && <WeekCard profile={profile} date={date} />}
 
       {profile && profile.goalKgPerWeek != null && date === todayStr() && (
-        <CoachCard profile={profile} goal={profile.goalKgPerWeek} />
+        <CoachCard profile={profile} />
       )}
 
       <div className="flex flex-col gap-2">
@@ -268,14 +266,12 @@ function WeekCard({ profile, date }: { profile: Profile; date: string }) {
  * says whether the goal pace is being hit, and suggests a new target when it should
  * change. Nothing changes until "Update target" is tapped.
  */
-function CoachCard({ profile, goal }: { profile: Profile; goal: number }) {
+function CoachCard({ profile }: { profile: Profile }) {
   const toast = useToast()
-  const maintenance = useMaintenanceEstimate(profile.id)
-  const weights = useWeights(profile.id)
-  if (maintenance === undefined || !weights) return null
-  const perWeek = weightTrend(weights)?.perWeek ?? null
+  const coach = useCoach(profile)
+  if (!coach || coach.kind === 'off') return null
 
-  if (maintenance === null || perWeek === null) {
+  if (coach.kind === 'learning') {
     return (
       <Card className="py-4">
         <div className="text-sm font-bold text-ink-soft">Coach</div>
@@ -287,23 +283,10 @@ function CoachCard({ profile, goal }: { profile: Profile; goal: number }) {
     )
   }
 
-  const advice = coachAdvice(profile, goal, maintenance, perWeek)
+  const { goal, maintenance, advice, cooldownDays } = coach
   const rate = `${advice.losing >= 0 ? 'losing' : 'gaining'} ${Math.abs(advice.losing).toFixed(2)} kg/week`
-  const headline =
-    advice.status === 'on-track'
-      ? 'On track'
-      : advice.status === 'slow'
-        ? goal > 0
-          ? 'Slower than your goal'
-          : 'Losing — eat a bit more to maintain'
-        : goal > 0
-          ? 'Faster than your goal'
-          : 'Gaining — eat a bit less to maintain'
+  const headline = coachHeadline(advice.status, goal)
   const change = advice.suggested - profile.kcalTarget
-  // give a new target a week before judging it
-  const daysSinceUpdate = profile.coachUpdatedAt
-    ? Math.floor((Date.now() - profile.coachUpdatedAt) / 86_400_000)
-    : Infinity
   const why =
     advice.status === 'slow'
       ? 'To hit your goal'
@@ -312,12 +295,7 @@ function CoachCard({ profile, goal }: { profile: Profile; goal: number }) {
         : 'To match what is already working'
 
   async function apply() {
-    await updateProfile(profile.id, {
-      kcalTarget: advice.suggested,
-      ...rebalanceMacros(profile, advice.suggested),
-      maintenanceKcal: maintenance,
-      coachUpdatedAt: Date.now(),
-    })
+    await applyCoachTarget(profile, advice.suggested, maintenance)
     toast('Target updated')
   }
 
@@ -339,12 +317,12 @@ function CoachCard({ profile, goal }: { profile: Profile; goal: number }) {
         {goal > 0 ? ` (goal ${goal} kg)` : ''} and burning about{' '}
         <span className="font-bold text-ink">{fmtKcal(maintenance)}</span> kcal/day.
       </p>
-      {daysSinceUpdate < 7 ? (
+      {cooldownDays > 0 ? (
         <p className="text-xs text-ink-faint">
-          Target updated recently — next check-in in {7 - daysSinceUpdate} day
-          {7 - daysSinceUpdate === 1 ? '' : 's'}.
+          Target updated recently — next check-in in {cooldownDays} day
+          {cooldownDays === 1 ? '' : 's'}.
         </p>
-      ) : Math.abs(change) >= 50 ? (
+      ) : Math.abs(change) >= COACH_MIN_CHANGE ? (
         <>
           <p className="text-xs text-ink-faint">
             {why}: <span className="font-bold text-ink">{fmtKcal(advice.suggested)}</span>{' '}

@@ -1,4 +1,5 @@
 import { todayStr } from '@/lib/dates'
+import { rebalanceMacros } from '@/lib/coach'
 import { newId } from '@/lib/id'
 import { roundMacros, type Macros } from '@/lib/macros'
 import { db } from './db'
@@ -463,6 +464,18 @@ export async function setWeight(profileId: string, date: string, kg: number): Pr
 
 export async function deleteWeight(id: string): Promise<void> {
   await db.weights.delete(id)
+}
+
+/* --------------------------------- coach -------------------------------- */
+
+/** Apply a coach suggestion: new calorie target, carbs/fat rebalanced, maintenance saved. */
+export async function applyCoachTarget(profile: Profile, kcal: number, maintenance: number): Promise<void> {
+  await updateProfile(profile.id, {
+    kcalTarget: kcal,
+    ...rebalanceMacros(profile, kcal),
+    maintenanceKcal: maintenance,
+    coachUpdatedAt: Date.now(),
+  })
 }
 
 /* ------------------------------ cheat days ------------------------------ */

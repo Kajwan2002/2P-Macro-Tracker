@@ -1,7 +1,8 @@
 import { db } from '@/db/db'
-import { dayTotals } from '@/db/queries'
+import { dayTotals, loadCoach, loadWeekKcal, loadWeekTotals, type CoachState } from '@/db/queries'
 import {
   addIngredient,
+  applyCoachTarget,
   addLogEntry,
   addMeal,
   addMealEvent,
@@ -21,7 +22,9 @@ import {
   updateQuickMeal,
 } from '@/db/repo'
 import type { Ingredient, LogEntry, Profile } from '@/db/types'
-import { lastNDays, todayStr } from '@/lib/dates'
+import { COACH_MIN_CHANGE, coachHeadline } from '@/lib/coach'
+import { lastNDays, shiftDay, todayStr } from '@/lib/dates'
+import { KCAL_PER_KG, weightTrend } from '@/lib/weight'
 import type { FunctionDeclaration, Schema, ToolResult } from '@/lib/gemini'
 import {
   addMacros,
@@ -39,6 +42,45 @@ type Args = Record<string, unknown>
 /* --------------------------------- context -------------------------------- */
 
 /** Rebuilt on every message so the assistant always sees today's real numbers. */
+/** Week, cheat day, weight and coach lines for one person's context block. */
+async function progressLines(p: Profile): Promise<string[]> {
+  const today = todayStr()
+  const [week, cheat, coach, weights] = await Promise.all([
+    loadWeekKcal(p.id, today),
+    db.cheatDays.get(`${p.id}:${today}`),
+    loadCoach(p),
+    db.weights.where('profileId').equals(p.id).toArray(),
+  ])
+  weights.sort((x, y) => x.date.localeCompare(y.date))
+  const budget = p.kcalTarget * 7
+  const eaten = Math.round([...week.byDay.values()].reduce((s, k) => s + k, 0))
+  const dayNo = Math.round((Date.parse(today) - Date.parse(week.from)) / 86_400_000) + 1
+  const pace = p.kcalTarget * dayNo
+  const trend = weightTrend(weights)
+  const latest = weights[weights.length - 1]
+  return [
+    `  Maintenance: ${p.maintenanceKcal ? `${p.maintenanceKcal} kcal/day` : 'not set'} · coach goal: ${p.goalKgPerWeek != null ? `lose ${p.goalKgPerWeek} kg/week` : 'off'}`,
+    `  This week (${week.from} to ${week.to}, cheat estimates included): ${fmtKcal(eaten)} of ${fmtKcal(budget)} kcal budget; on pace by tonight would be ${fmtKcal(pace)} (${eaten > pace ? `${fmtKcal(eaten - pace)} over` : `${fmtKcal(pace - eaten)} under`})`,
+    cheat
+      ? `  Today is a CHEAT DAY — current whole-day estimate: ${cheat.kcal ? `${cheat.kcal} kcal` : 'none yet'}`
+      : '  Today is a normal day (not a cheat day).',
+    latest
+      ? `  Weight: latest ${latest.kg} kg on ${latest.date}${trend ? `, 7-day avg ${round1(trend.avg7)} kg` : ''}${trend?.perWeek != null ? `, trend ${trend.perWeek > 0 ? '+' : ''}${trend.perWeek.toFixed(2)} kg/week (last 4 weeks)` : ', not enough weigh-ins for a trend yet'}`
+      : '  Weight: no weigh-ins yet.',
+    `  Coach: ${coachSummary(p, coach)}`,
+  ]
+}
+
+function coachSummary(p: Profile, coach: CoachState): string {
+  if (coach.kind === 'off') return 'off (no goal set)'
+  if (coach.kind === 'learning') return 'learning — needs ~2 weeks of food logs and weigh-ins'
+  const { advice, maintenance, cooldownDays } = coach
+  const head = `${coachHeadline(advice.status, coach.goal)}; losing ${advice.losing.toFixed(2)} kg/week, burning ≈ ${maintenance} kcal/day`
+  if (cooldownDays > 0) return `${head}; target changed recently, next check-in in ${cooldownDays} day(s)`
+  if (Math.abs(advice.suggested - p.kcalTarget) < COACH_MIN_CHANGE) return `${head}; target fits, no change needed`
+  return `${head}; suggests changing the target ${p.kcalTarget} → ${advice.suggested} kcal (user can apply with apply_coach_target)`
+}
+
 export async function buildSystemPrompt(): Promise<string> {
   const settings = await getSettings()
   const profiles = await db.profiles.orderBy('sortOrder').toArray()
@@ -58,6 +100,7 @@ export async function buildSystemPrompt(): Promise<string> {
   for (const p of profiles) {
     const entries = await db.logEntries.where('[profileId+date]').equals([p.id, today]).toArray()
     const t = dayTotals(entries)
+    const progress = await progressLines(p)
     blocks.push(
       [
         `${p.name.toUpperCase()}${p.id === profile?.id ? ' (active — the person chatting)' : ''}`,
@@ -67,6 +110,7 @@ export async function buildSystemPrompt(): Promise<string> {
         entries.length
           ? `  Logged today: ${entries.map((e) => `“${e.name}” (${e.kcal} kcal, P${e.protein}, id ${e.id})`).join('; ')}`
           : '  Nothing logged yet today.',
+        ...progress,
       ].join('\n'),
     )
   }
@@ -115,7 +159,14 @@ How to work:
 - For "what should I eat" questions, suggest realistic ideas that fit the REMAINING macros, preferring saved ingredients/meals, with rough portions in grams.
 - For a photo or a described food, estimate macros for the portion and say it's an estimate.
 - After using tools, confirm in one short sentence what changed. The app also shows a ✅ line for each change.
-- Dates are YYYY-MM-DD and default to today.`
+- Dates are YYYY-MM-DD and default to today.
+
+Cheat days, weekly budget and coach (features of this app — explain them if asked):
+- A cheat day isn't judged against the daily target, but it still counts toward the week, using a rough estimate of the whole day's calories when one is set (the higher of estimate and logged food counts).
+- Brain dump on a cheat day ("I had 2 slices of pizza, a beer, some fries…"): estimate each item with realistic portions (restaurant portions are big — round up rather than down), add anything already logged that day, and call set_cheat_day ONCE with kcal = the whole day's total. Do NOT log the items as separate entries unless the user asks. Reply with a short itemised list (item ≈ kcal) and the total, and say it's an estimate. If they add more food later, call set_cheat_day again with the NEW TOTAL (the current estimate is shown above for today; for other days use get_daily_totals).
+- Weekly budget = daily target × 7 (Mon–Sun). Weekly balance in History compares each week to maintenance (or the target if no maintenance is set) on tracked days only.
+- The coach (when a goal is set) estimates maintenance from logged food + the weight trend and suggests a new target at most once a week, max 250 kcal per change. If the user asks to apply it, call apply_coach_target — never set kcal yourself to mimic it.
+- For "how am I doing / how was my week / am I on track" use the numbers above, and get_progress for older weeks and weight history. Fat loss ≈ 7,700 kcal per kg; judge weight by the trend, not single weigh-ins.`
 }
 
 /* ---------------------------------- schema -------------------------------- */
@@ -290,7 +341,7 @@ export const TOOLS: FunctionDeclaration[] = [
   tool('log_weight', 'Record body weight.', { kg: num_('Weight in kg'), date: DATE, profile: PROFILE }, ['profile', 'kg']),
   tool(
     'set_cheat_day',
-    'Mark or unmark a day as a cheat day. Cheat days still count toward the weekly total, using kcal (a rough estimate of the whole day) when given.',
+    'Mark or unmark a day as a cheat day. Cheat days still count toward the weekly total, using kcal (a rough estimate of the WHOLE day, everything eaten) when given. Calling again replaces the estimate.',
     {
       date: DATE,
       on: bool_('true to mark (default), false to unmark'),
@@ -311,8 +362,20 @@ export const TOOLS: FunctionDeclaration[] = [
     ['profile'],
   ),
   tool(
+    'get_progress',
+    'Weekly balances (last 8 weeks), weigh-ins and weight trend, maintenance and the coach status — for questions about progress over weeks.',
+    { profile: PROFILE },
+    ['profile'],
+  ),
+  tool(
+    'apply_coach_target',
+    "Apply the coach's suggested daily calorie target (also rebalances carbs/fat and saves maintenance). Only when the user asks.",
+    { profile: PROFILE },
+    ['profile'],
+  ),
+  tool(
     'get_daily_totals',
-    'Read per-day eaten totals for recent days, to answer questions about progress.',
+    'Read per-day eaten totals for recent days (with cheat days and their estimates), to answer questions about progress.',
     { days: num_('How many days back, including today (default 7, max 31)'), profile: PROFILE },
     ['profile'],
   ),
@@ -653,6 +716,44 @@ export async function runTool(name: string, a: Args): Promise<ToolResult> {
           (n.maintenanceKcal ? ` · maintenance ${n.maintenanceKcal} kcal` : ''),
       )
     }
+    case 'get_progress': {
+      const p = await profileFor(a)
+      if ('error' in p) return fail(p.error)
+      const [weeks, coach, weights] = await Promise.all([
+        loadWeekTotals(p.id, 8),
+        loadCoach(p),
+        db.weights.where('profileId').equals(p.id).toArray(),
+      ])
+      weights.sort((x, y) => x.date.localeCompare(y.date))
+      const base = p.maintenanceKcal || p.kcalTarget
+      const trend = weightTrend(weights)
+      return {
+        response: {
+          ok: true,
+          profile: p.name,
+          weeklyBalanceVs: p.maintenanceKcal ? `maintenance ${base}/day` : `target ${base}/day (no maintenance set)`,
+          weeks: weeks.map((w) => {
+            const diff = Math.round(w.kcal - base * w.daysTracked)
+            return { from: w.from, to: w.to, kcal: Math.round(w.kcal), daysTracked: w.daysTracked, balance: diff, approxKg: round1(diff / KCAL_PER_KG) }
+          }),
+          weighIns: weights.filter((w) => w.date >= shiftDay(todayStr(), -56)).map((w) => ({ date: w.date, kg: w.kg })),
+          trend: trend && { avg7: round1(trend.avg7), kgPerWeek: trend.perWeek === null ? null : Math.round(trend.perWeek * 100) / 100 },
+          coach: coachSummary(p, coach),
+        },
+      }
+    }
+    case 'apply_coach_target': {
+      const p = await profileFor(a)
+      if ('error' in p) return fail(p.error)
+      const coach = await loadCoach(p)
+      if (coach.kind === 'off') return fail(`the coach is off for ${p.name} — set a goal first (update_targets goal)`)
+      if (coach.kind === 'learning') return fail('the coach needs ~2 weeks of food logs and weigh-ins first')
+      if (coach.cooldownDays > 0) return fail(`target was changed recently — next check-in in ${coach.cooldownDays} day(s)`)
+      const s = coach.advice.suggested
+      if (Math.abs(s - p.kcalTarget) < COACH_MIN_CHANGE) return fail(`no change needed — target ${p.kcalTarget} already fits`)
+      await applyCoachTarget(p, s, coach.maintenance)
+      return done(`Target for ${p.name}: ${p.kcalTarget} → ${s} kcal (maintenance ${coach.maintenance})`)
+    }
     case 'get_daily_totals': {
       const p = await profileFor(a)
       if ('error' in p) return fail(p.error)
@@ -661,6 +762,9 @@ export async function runTool(name: string, a: Args): Promise<ToolResult> {
       const rows = (await db.logEntries.where('profileId').equals(p.id).toArray()).filter((e) => e.date >= days[0])
       const by = new Map<string, Macros>()
       for (const e of rows) by.set(e.date, addMacros(by.get(e.date) ?? ZERO_MACROS, e))
+      const cheats = new Map(
+        (await db.cheatDays.where('profileId').equals(p.id).toArray()).map((c) => [c.date, c.kcal ?? null]),
+      )
       return {
         response: {
           ok: true,
@@ -668,7 +772,10 @@ export async function runTool(name: string, a: Args): Promise<ToolResult> {
           targets: { kcal: p.kcalTarget, protein: p.proteinTarget, carbs: p.carbsTarget, fat: p.fatTarget },
           days: days.map((d) => {
             const m = by.get(d) ?? ZERO_MACROS
-            return { date: d, kcal: Math.round(m.kcal), protein: round1(m.protein), carbs: round1(m.carbs), fat: round1(m.fat) }
+            const day = { date: d, kcal: Math.round(m.kcal), protein: round1(m.protein), carbs: round1(m.carbs), fat: round1(m.fat) }
+            if (!cheats.has(d)) return day
+            const estimate = cheats.get(d) ?? null
+            return { ...day, cheatDay: true, estimate, countedKcal: Math.round(Math.max(m.kcal, estimate ?? 0)) }
           }),
         },
       }

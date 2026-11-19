@@ -1,7 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lastNDays, shiftDay, todayStr, weekRange, type DateStr } from '@/lib/dates'
 import { addMacros, ZERO_MACROS, type Macros } from '@/lib/macros'
-import { estimateMaintenance } from '@/lib/weight'
+import { COACH_COOLDOWN_DAYS, coachAdvice, type CoachAdvice } from '@/lib/coach'
+import { estimateMaintenance, weightTrend } from '@/lib/weight'
 import { db } from './db'
 import { getSettings } from './repo'
 import type {
@@ -166,28 +167,37 @@ export function countedKcal(date: DateStr, loggedKcal: number, cheat: CheatMap |
   return Math.max(loggedKcal, cheat?.get(date) ?? 0)
 }
 
+/** Logged kcal per day from `from` on, with cheat-day estimates applied (see countedKcal). */
+async function countedByDay(profileId: string, from: DateStr, to = '9999-12-31'): Promise<Map<DateStr, number>> {
+  const [rows, cheats] = await Promise.all([
+    db.logEntries.where('[profileId+date]').between([profileId, from], [profileId, to], true, true).toArray(),
+    db.cheatDays.where('profileId').equals(profileId).toArray(),
+  ])
+  const byDay = new Map<DateStr, number>()
+  for (const e of rows) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.kcal)
+  const cheat: CheatMap = new Map(cheats.map((c) => [c.date, c.kcal ?? null]))
+  for (const [d, est] of cheat) {
+    if (d >= from && d <= to && est) byDay.set(d, countedKcal(d, byDay.get(d) ?? 0, cheat))
+  }
+  return byDay
+}
+
+export interface WeekKcal {
+  from: DateStr
+  to: DateStr
+  byDay: Map<DateStr, number>
+}
+
 /** Counted kcal per day for the Mon–Sun week containing `date`. */
-export function useWeekKcal(
-  profileId: string | undefined,
-  date: DateStr,
-): { from: DateStr; to: DateStr; byDay: Map<DateStr, number> } | undefined {
+export async function loadWeekKcal(profileId: string, date: DateStr): Promise<WeekKcal> {
+  const [from, to] = weekRange(date)
+  return { from, to, byDay: await countedByDay(profileId, from, to) }
+}
+
+export function useWeekKcal(profileId: string | undefined, date: DateStr): WeekKcal | undefined {
   return useLiveQuery(async () => {
-    const [from, to] = weekRange(date)
-    const byDay = new Map<DateStr, number>()
-    if (!profileId) return { from, to, byDay }
-    const [rows, cheats] = await Promise.all([
-      db.logEntries
-        .where('[profileId+date]')
-        .between([profileId, from], [profileId, to], true, true)
-        .toArray(),
-      db.cheatDays.where('profileId').equals(profileId).toArray(),
-    ])
-    for (const e of rows) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.kcal)
-    const cheat: CheatMap = new Map(cheats.map((c) => [c.date, c.kcal ?? null]))
-    for (const [d, est] of cheat) {
-      if (d >= from && d <= to && est) byDay.set(d, countedKcal(d, byDay.get(d) ?? 0, cheat))
-    }
-    return { from, to, byDay }
+    if (!profileId) return { from: weekRange(date)[0], to: weekRange(date)[1], byDay: new Map() }
+    return loadWeekKcal(profileId, date)
   }, [profileId, date])
 }
 
@@ -203,63 +213,85 @@ export interface WeekTotal {
 }
 
 /** The last `n` Mon–Sun weeks (newest first), skipping weeks with nothing tracked. */
-export function useWeekTotals(profileId: string | undefined, n: number): WeekTotal[] | undefined {
-  return useLiveQuery(async () => {
-    if (!profileId) return []
-    const [thisMonday] = weekRange(todayStr())
-    const from = shiftDay(thisMonday, -7 * (n - 1))
-    const [rows, cheats] = await Promise.all([
-      db.logEntries.where('profileId').equals(profileId).toArray(),
-      db.cheatDays.where('profileId').equals(profileId).toArray(),
-    ])
-    const byDay = new Map<DateStr, number>()
-    for (const e of rows) if (e.date >= from) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.kcal)
-    const cheat: CheatMap = new Map(cheats.map((c) => [c.date, c.kcal ?? null]))
-    for (const [d, est] of cheat) {
-      if (d >= from && est) byDay.set(d, countedKcal(d, byDay.get(d) ?? 0, cheat))
-    }
-
-    const weeks: WeekTotal[] = []
-    for (let i = 0; i < n; i++) {
-      const mon = shiftDay(thisMonday, -7 * i)
-      const sun = shiftDay(mon, 6)
-      let kcal = 0
-      let daysTracked = 0
-      for (const [d, k] of byDay) {
-        if (d >= mon && d <= sun && k > 0) {
-          kcal += k
-          daysTracked++
-        }
+export async function loadWeekTotals(profileId: string, n: number): Promise<WeekTotal[]> {
+  const [thisMonday] = weekRange(todayStr())
+  const byDay = await countedByDay(profileId, shiftDay(thisMonday, -7 * (n - 1)))
+  const weeks: WeekTotal[] = []
+  for (let i = 0; i < n; i++) {
+    const mon = shiftDay(thisMonday, -7 * i)
+    const sun = shiftDay(mon, 6)
+    let kcal = 0
+    let daysTracked = 0
+    for (const [d, k] of byDay) {
+      if (d >= mon && d <= sun && k > 0) {
+        kcal += k
+        daysTracked++
       }
-      if (daysTracked) weeks.push({ from: mon, to: sun, kcal, daysTracked })
     }
-    return weeks
-  }, [profileId, n])
+    if (daysTracked) weeks.push({ from: mon, to: sun, kcal, daysTracked })
+  }
+  return weeks
+}
+
+export function useWeekTotals(profileId: string | undefined, n: number): WeekTotal[] | undefined {
+  return useLiveQuery(async () => (profileId ? loadWeekTotals(profileId, n) : []), [profileId, n])
+}
+
+async function sortedWeights(profileId: string): Promise<WeightEntry[]> {
+  const rows = await db.weights.where('profileId').equals(profileId).toArray()
+  return rows.sort((a, b) => a.date.localeCompare(b.date))
 }
 
 /** Maintenance estimated from the last 4 weeks of food + weight (null with too little data). */
+export async function loadMaintenanceEstimate(profileId: string): Promise<number | null> {
+  const byDay = await countedByDay(profileId, shiftDay(todayStr(), -27))
+  // today is usually only half-logged — leave it out
+  const days = [...byDay].filter(([d, k]) => d < todayStr() && k > 0).map(([, k]) => k)
+  return estimateMaintenance(await sortedWeights(profileId), days)
+}
+
 export function useMaintenanceEstimate(profileId: string | undefined): number | null | undefined {
-  return useLiveQuery(async () => {
-    if (!profileId) return null
-    const from = shiftDay(todayStr(), -27)
-    const [rows, cheats, weights] = await Promise.all([
-      db.logEntries.where('profileId').equals(profileId).toArray(),
-      db.cheatDays.where('profileId').equals(profileId).toArray(),
-      db.weights.where('profileId').equals(profileId).toArray(),
-    ])
-    const byDay = new Map<DateStr, number>()
-    for (const e of rows) if (e.date >= from) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.kcal)
-    const cheat: CheatMap = new Map(cheats.map((c) => [c.date, c.kcal ?? null]))
-    for (const [d, est] of cheat) {
-      if (d >= from && est) byDay.set(d, countedKcal(d, byDay.get(d) ?? 0, cheat))
+  return useLiveQuery(async () => (profileId ? loadMaintenanceEstimate(profileId) : null), [profileId])
+}
+
+/* --------------------------------- coach -------------------------------- */
+
+export type CoachState =
+  | { kind: 'off' }
+  | { kind: 'learning' }
+  | {
+      kind: 'ready'
+      goal: number
+      maintenance: number
+      advice: CoachAdvice
+      /** days left before the next suggestion, after a recent change (0 = can suggest now) */
+      cooldownDays: number
     }
-    // today is usually only half-logged — leave it out
-    const days = [...byDay].filter(([d, k]) => d < todayStr() && k > 0).map(([, k]) => k)
-    return estimateMaintenance(
-      weights.sort((a, b) => a.date.localeCompare(b.date)),
-      days,
-    )
-  }, [profileId])
+
+/** Everything the coach knows about a profile right now (same for the Today card and the assistant). */
+export async function loadCoach(profile: Profile): Promise<CoachState> {
+  const goal = profile.goalKgPerWeek
+  if (goal == null) return { kind: 'off' }
+  const [maintenance, weights] = await Promise.all([
+    loadMaintenanceEstimate(profile.id),
+    sortedWeights(profile.id),
+  ])
+  const perWeek = weightTrend(weights)?.perWeek ?? null
+  if (maintenance === null || perWeek === null) return { kind: 'learning' }
+  const since = profile.coachUpdatedAt
+    ? Math.floor((Date.now() - profile.coachUpdatedAt) / 86_400_000)
+    : Infinity
+  return {
+    kind: 'ready',
+    goal,
+    maintenance,
+    advice: coachAdvice(profile, goal, maintenance, perWeek),
+    cooldownDays: Math.max(0, COACH_COOLDOWN_DAYS - since),
+  }
+}
+
+export function useCoach(profile: Profile): CoachState | undefined {
+  return useLiveQuery(() => loadCoach(profile), [profile])
 }
 
 /* -------------------------------- weight -------------------------------- */
@@ -269,9 +301,5 @@ export function useChat(): ChatMessage[] | undefined {
 }
 
 export function useWeights(profileId: string | undefined): WeightEntry[] | undefined {
-  return useLiveQuery(async () => {
-    if (!profileId) return []
-    const rows = await db.weights.where('profileId').equals(profileId).toArray()
-    return rows.sort((a, b) => a.date.localeCompare(b.date))
-  }, [profileId])
+  return useLiveQuery(async () => (profileId ? sortedWeights(profileId) : []), [profileId])
 }

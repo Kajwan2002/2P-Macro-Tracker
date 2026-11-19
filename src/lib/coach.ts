@@ -7,6 +7,10 @@ const MIN_TARGET = 1200
 const MAX_DEFICIT = 0.25
 /** Largest change to the target in one check-in, so one noisy month can't swing it wildly. */
 const MAX_STEP = 250
+/** Days a new target gets before the coach judges it. */
+export const COACH_COOLDOWN_DAYS = 7
+/** Smaller differences aren't worth changing the target for. */
+export const COACH_MIN_CHANGE = 50
 
 export type CoachStatus = 'on-track' | 'slow' | 'fast'
 
@@ -50,4 +54,10 @@ export function rebalanceMacros(profile: Profile, kcal: number): { carbsTarget: 
     carbsTarget: Math.round((rest * carbShare) / 4),
     fatTarget: Math.round((rest * (1 - carbShare)) / 9),
   }
+}
+
+export function coachHeadline(status: CoachStatus, goal: number): string {
+  if (status === 'on-track') return 'On track'
+  if (status === 'slow') return goal > 0 ? 'Slower than your goal' : 'Losing — eat a bit more to maintain'
+  return goal > 0 ? 'Faster than your goal' : 'Gaining — eat a bit less to maintain'
 }
