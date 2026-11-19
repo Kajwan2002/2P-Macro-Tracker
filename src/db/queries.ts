@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { lastNDays, weekRange, type DateStr } from '@/lib/dates'
+import { lastNDays, shiftDay, todayStr, weekRange, type DateStr } from '@/lib/dates'
 import { addMacros, ZERO_MACROS, type Macros } from '@/lib/macros'
 import { db } from './db'
 import { getSettings } from './repo'
@@ -188,6 +188,52 @@ export function useWeekKcal(
     }
     return { from, to, byDay }
   }, [profileId, date])
+}
+
+export interface WeekTotal {
+  /** Monday */
+  from: DateStr
+  /** Sunday */
+  to: DateStr
+  /** counted kcal (cheat-day estimates included) */
+  kcal: number
+  /** days with something logged or a cheat estimate */
+  daysTracked: number
+}
+
+/** The last `n` Mon–Sun weeks (newest first), skipping weeks with nothing tracked. */
+export function useWeekTotals(profileId: string | undefined, n: number): WeekTotal[] | undefined {
+  return useLiveQuery(async () => {
+    if (!profileId) return []
+    const [thisMonday] = weekRange(todayStr())
+    const from = shiftDay(thisMonday, -7 * (n - 1))
+    const [rows, cheats] = await Promise.all([
+      db.logEntries.where('profileId').equals(profileId).toArray(),
+      db.cheatDays.where('profileId').equals(profileId).toArray(),
+    ])
+    const byDay = new Map<DateStr, number>()
+    for (const e of rows) if (e.date >= from) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.kcal)
+    const cheat: CheatMap = new Map(cheats.map((c) => [c.date, c.kcal ?? null]))
+    for (const [d, est] of cheat) {
+      if (d >= from && est) byDay.set(d, countedKcal(d, byDay.get(d) ?? 0, cheat))
+    }
+
+    const weeks: WeekTotal[] = []
+    for (let i = 0; i < n; i++) {
+      const mon = shiftDay(thisMonday, -7 * i)
+      const sun = shiftDay(mon, 6)
+      let kcal = 0
+      let daysTracked = 0
+      for (const [d, k] of byDay) {
+        if (d >= mon && d <= sun && k > 0) {
+          kcal += k
+          daysTracked++
+        }
+      }
+      if (daysTracked) weeks.push({ from: mon, to: sun, kcal, daysTracked })
+    }
+    return weeks
+  }, [profileId, n])
 }
 
 /* -------------------------------- weight -------------------------------- */

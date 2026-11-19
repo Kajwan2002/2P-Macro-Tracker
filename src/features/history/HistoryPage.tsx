@@ -21,12 +21,13 @@ import {
   useDayEntries,
   useLoggedDays,
   useRecentDays,
+  useWeekTotals,
   useWeights,
 } from '@/db/queries'
 import { deleteWeight, setCheatDay, setWeight } from '@/db/repo'
 import { cn } from '@/lib/cn'
 import type { LogEntry } from '@/db/types'
-import { dayHeading, parseISO, shortDate, todayStr, weekdayShort } from '@/lib/dates'
+import { dayHeading, parseISO, shortDate, todayStr, weekdayShort, weekRange } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
 import { weightTrend } from '@/lib/weight'
 import { EntryEditSheet } from '@/features/entries/EntryEditSheet'
@@ -101,6 +102,8 @@ export function HistoryPage() {
         </p>
       </Card>
 
+      {profile && <WeeklyBalance profileId={profile.id} kcalTarget={profile.kcalTarget} />}
+
       {cheat && <CheatMonthCard dates={cheat} />}
 
       {profile && <WeightSection profileId={profile.id} />}
@@ -147,6 +150,54 @@ export function HistoryPage() {
       )}
     </Screen>
   )
+}
+
+/** Each week's total vs. budget — only the days you tracked count, so a
+ * forgotten day doesn't show up as a huge deficit. */
+function WeeklyBalance({ profileId, kcalTarget }: { profileId: string; kcalTarget: number }) {
+  const weeks = useWeekTotals(profileId, 8)
+  if (!weeks || weeks.length === 0) return null
+  const [thisMonday] = weekRange(todayStr())
+
+  return (
+    <Card className="flex flex-col gap-1">
+      <SectionTitle className="px-0">Weekly balance</SectionTitle>
+      <p className="mb-1 text-xs text-ink-faint">
+        Total vs. {fmtKcal(kcalTarget)}/day on the days you tracked. − is under (good for losing).
+      </p>
+      {weeks.map((w) => {
+        const diff = Math.round(w.kcal - kcalTarget * w.daysTracked)
+        return (
+          <div
+            key={w.from}
+            className="flex items-center justify-between gap-3 border-b border-surface-2 py-2 last:border-0"
+          >
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-ink">
+                {w.from === thisMonday ? 'This week' : weekLabel(w.from, w.to)}
+              </div>
+              <div className="text-[0.65rem] font-semibold text-ink-faint">
+                {fmtKcal(w.kcal)} kcal · {w.daysTracked} day{w.daysTracked === 1 ? '' : 's'} tracked
+              </div>
+            </div>
+            <span className={cn('shrink-0 font-extrabold', diff > 0 ? 'text-over' : 'text-accent')}>
+              {diff > 0 ? '+' : diff < 0 ? '−' : ''}
+              {fmtKcal(Math.abs(diff))}
+            </span>
+          </div>
+        )
+      })}
+    </Card>
+  )
+}
+
+/** "10–16 Nov", or "27 Oct – 2 Nov" across months */
+function weekLabel(from: string, to: string): string {
+  const a = parseISO(from)
+  const b = parseISO(to)
+  return a.getMonth() === b.getMonth()
+    ? `${format(a, 'd')}–${format(b, 'd MMM')}`
+    : `${format(a, 'd MMM')} – ${format(b, 'd MMM')}`
 }
 
 function CheatMonthCard({ dates }: { dates: CheatMap }) {
