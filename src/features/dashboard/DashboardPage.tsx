@@ -16,9 +16,15 @@ import {
   useCheatDays,
   useDayEntries,
   useIngredientMap,
+  useMaintenanceEstimate,
   useWeekKcal,
+  useWeights,
 } from '@/db/queries'
-import { setCheatDay } from '@/db/repo'
+import { setCheatDay, updateProfile } from '@/db/repo'
+import { Button } from '@/components/Button'
+import { useToast } from '@/components/Toast'
+import { coachAdvice, rebalanceMacros } from '@/lib/coach'
+import { weightTrend } from '@/lib/weight'
 import type { LogEntry, Profile } from '@/db/types'
 import { entryAmountText } from '@/lib/amount'
 import { dayHeading, maxLogDate, parseISO, shiftDay, todayStr } from '@/lib/dates'
@@ -141,6 +147,10 @@ export function DashboardPage() {
 
       {profile && <WeekCard profile={profile} date={date} />}
 
+      {profile && profile.goalKgPerWeek != null && date === todayStr() && (
+        <CoachCard profile={profile} goal={profile.goalKgPerWeek} />
+      )}
+
       <div className="flex flex-col gap-2">
         {(entries?.length ?? 0) === 0 ? (
           <EmptyState emoji="🍽️" title="Nothing logged yet" hint="Tap + to add a meal, food or a quick entry." />
@@ -249,6 +259,105 @@ function WeekCard({ profile, date }: { profile: Profile; date: string }) {
         {daysToGo > 0 &&
           ` · ≈ ${fmtKcal(Math.max(0, Math.round(perDay)))}/day for ${daysToGo === 1 ? 'today' : `the next ${daysToGo} days`}`}
       </div>
+    </Card>
+  )
+}
+
+/**
+ * The smart part: learns the real burn rate from logged food + the weight trend,
+ * says whether the goal pace is being hit, and suggests a new target when it should
+ * change. Nothing changes until "Update target" is tapped.
+ */
+function CoachCard({ profile, goal }: { profile: Profile; goal: number }) {
+  const toast = useToast()
+  const maintenance = useMaintenanceEstimate(profile.id)
+  const weights = useWeights(profile.id)
+  if (maintenance === undefined || !weights) return null
+  const perWeek = weightTrend(weights)?.perWeek ?? null
+
+  if (maintenance === null || perWeek === null) {
+    return (
+      <Card className="py-4">
+        <div className="text-sm font-bold text-ink-soft">Coach</div>
+        <p className="mt-0.5 text-xs text-ink-faint">
+          Learning your body — log your food and weigh in 3+ times a week. The first check-in
+          comes after about 2 weeks.
+        </p>
+      </Card>
+    )
+  }
+
+  const advice = coachAdvice(profile, goal, maintenance, perWeek)
+  const rate = `${advice.losing >= 0 ? 'losing' : 'gaining'} ${Math.abs(advice.losing).toFixed(2)} kg/week`
+  const headline =
+    advice.status === 'on-track'
+      ? 'On track'
+      : advice.status === 'slow'
+        ? goal > 0
+          ? 'Slower than your goal'
+          : 'Losing — eat a bit more to maintain'
+        : goal > 0
+          ? 'Faster than your goal'
+          : 'Gaining — eat a bit less to maintain'
+  const change = advice.suggested - profile.kcalTarget
+  // give a new target a week before judging it
+  const daysSinceUpdate = profile.coachUpdatedAt
+    ? Math.floor((Date.now() - profile.coachUpdatedAt) / 86_400_000)
+    : Infinity
+  const why =
+    advice.status === 'slow'
+      ? 'To hit your goal'
+      : advice.status === 'fast'
+        ? 'To slow down to your goal'
+        : 'To match what is already working'
+
+  async function apply() {
+    await updateProfile(profile.id, {
+      kcalTarget: advice.suggested,
+      ...rebalanceMacros(profile, advice.suggested),
+      maintenanceKcal: maintenance,
+      coachUpdatedAt: Date.now(),
+    })
+    toast('Target updated')
+  }
+
+  return (
+    <Card className="flex flex-col gap-2 py-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-bold text-ink-soft">Coach</span>
+        <span
+          className={cn(
+            'text-xs font-bold',
+            advice.status === 'on-track' ? 'text-accent' : 'text-over',
+          )}
+        >
+          {headline}
+        </span>
+      </div>
+      <p className="text-xs text-ink-faint">
+        You're {rate}
+        {goal > 0 ? ` (goal ${goal} kg)` : ''} and burning about{' '}
+        <span className="font-bold text-ink">{fmtKcal(maintenance)}</span> kcal/day.
+      </p>
+      {daysSinceUpdate < 7 ? (
+        <p className="text-xs text-ink-faint">
+          Target updated recently — next check-in in {7 - daysSinceUpdate} day
+          {7 - daysSinceUpdate === 1 ? '' : 's'}.
+        </p>
+      ) : Math.abs(change) >= 50 ? (
+        <>
+          <p className="text-xs text-ink-faint">
+            {why}: <span className="font-bold text-ink">{fmtKcal(advice.suggested)}</span>{' '}
+            kcal/day (now {fmtKcal(profile.kcalTarget)}, {change > 0 ? '+' : '−'}
+            {fmtKcal(Math.abs(change))}). Protein stays; carbs and fat adjust.
+          </p>
+          <Button full variant="soft" onClick={apply}>
+            Update target
+          </Button>
+        </>
+      ) : (
+        <p className="text-xs text-ink-faint">Your target fits your goal — no change needed.</p>
+      )}
     </Card>
   )
 }

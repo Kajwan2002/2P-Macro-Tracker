@@ -4,10 +4,10 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NumberField } from '@/components/NumberField'
 import { Sheet } from '@/components/Sheet'
 import { useToast } from '@/components/Toast'
-import { useMaintenanceEstimate, useProfiles } from '@/db/queries'
+import { useMaintenanceEstimate, useProfiles, useWeights } from '@/db/queries'
 import { addProfile, deleteProfile, updateProfile } from '@/db/repo'
 import type { Profile } from '@/db/types'
-import { fmtKcal } from '@/lib/macros'
+import { fmtKcal, round1 } from '@/lib/macros'
 import { ACCENTS } from '@/theme/accents'
 
 interface ProfileFormSheetProps {
@@ -27,6 +27,10 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
   const [carbs, setCarbs] = useState(220)
   const [fat, setFat] = useState(70)
   const [maintenance, setMaintenance] = useState(0)
+  const [goal, setGoal] = useState(0)
+  const [coachOn, setCoachOn] = useState(false)
+  const weights = useWeights(profile?.id)
+  const latestKg = weights?.length ? weights[weights.length - 1].kg : null
   const estimate = useMaintenanceEstimate(profile?.id)
   const [confirmDel, setConfirmDel] = useState(false)
 
@@ -39,6 +43,8 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
     setCarbs(profile?.carbsTarget ?? 220)
     setFat(profile?.fatTarget ?? 70)
     setMaintenance(profile?.maintenanceKcal ?? 0)
+    setGoal(profile?.goalKgPerWeek ?? 0)
+    setCoachOn(profile?.goalKgPerWeek != null)
   }, [open, profile])
 
   async function save() {
@@ -50,6 +56,7 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
       carbsTarget: carbs,
       fatTarget: fat,
       maintenanceKcal: maintenance || null,
+      goalKgPerWeek: coachOn ? goal : null,
     }
     if (profile) await updateProfile(profile.id, input)
     else await addProfile(input)
@@ -128,6 +135,38 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
               ' Log food and weigh in for 2+ weeks and the app will estimate it for you.'
             )}
           </p>
+        </div>
+
+        <div>
+          <label className="mb-1 flex items-center justify-between gap-2 px-1">
+            <span className="text-[0.7rem] font-bold text-ink-soft">Coach</span>
+            <input
+              type="checkbox"
+              checked={coachOn}
+              onChange={(e) => setCoachOn(e.target.checked)}
+              className="h-4 w-4 accent-[var(--color-accent)]"
+            />
+          </label>
+          {coachOn ? (
+            <>
+              <NumberField
+                label="Goal: lose per week (0 = maintain)"
+                value={goal}
+                onChange={setGoal}
+                placeholder="0.5"
+                suffix="kg"
+              />
+              <p className="mt-1.5 px-1 text-xs text-ink-faint">
+                A good pace is 0.5–1% of body weight per week
+                {latestKg ? ` — ${round1(latestKg * 0.005)}–${round1(latestKg * 0.01)} kg for you` : ''}.
+                The Today screen will check your progress and suggest target changes.
+              </p>
+            </>
+          ) : (
+            <p className="px-1 text-xs text-ink-faint">
+              Turn on to set a weekly goal and get target suggestions as your body changes.
+            </p>
+          )}
         </div>
 
         <Button full onClick={save}>

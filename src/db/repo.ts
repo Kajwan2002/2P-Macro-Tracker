@@ -42,6 +42,7 @@ export interface ProfileInput {
   carbsTarget: number
   fatTarget: number
   maintenanceKcal?: number | null
+  goalKgPerWeek?: number | null
 }
 
 export async function addProfile(input: ProfileInput): Promise<string> {
@@ -57,6 +58,7 @@ export async function addProfile(input: ProfileInput): Promise<string> {
     carbsTarget: clampInt(input.carbsTarget),
     fatTarget: clampInt(input.fatTarget),
     maintenanceKcal: input.maintenanceKcal ? clampInt(input.maintenanceKcal) : null,
+    goalKgPerWeek: input.goalKgPerWeek != null ? Math.min(1.5, nonNeg(input.goalKgPerWeek)) : null,
     sortOrder: count,
     createdAt: now,
     updatedAt: now,
@@ -76,6 +78,7 @@ export async function updateProfile(
   if (clean.maintenanceKcal !== undefined) {
     clean.maintenanceKcal = clean.maintenanceKcal ? clampInt(clean.maintenanceKcal) : null
   }
+  if (clean.goalKgPerWeek != null) clean.goalKgPerWeek = Math.min(1.5, nonNeg(clean.goalKgPerWeek))
   await db.profiles.update(id, clean)
 }
 

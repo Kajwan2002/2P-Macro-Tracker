@@ -13,6 +13,10 @@ export interface Profile {
   fatTarget: number
   /** calories burned per day (TDEE) — what weekly surplus / deficit is measured against */
   maintenanceKcal?: number | null
+  /** kg to lose per week (0 = maintain); turns on the coach's target suggestions */
+  goalKgPerWeek?: number | null
+  /** when the coach last changed the target — it waits a week before suggesting again */
+  coachUpdatedAt?: number | null
   sortOrder: number
   createdAt: number
   updatedAt: number

@@ -302,7 +302,12 @@ export const TOOLS: FunctionDeclaration[] = [
   tool(
     'update_targets',
     'Change daily targets and/or maintenance (calories burned per day). Only pass the ones to change.',
-    { ...macros('per day'), maintenance: num_('Maintenance kcal/day (TDEE); 0 clears it'), profile: PROFILE },
+    {
+      ...macros('per day'),
+      maintenance: num_('Maintenance kcal/day (TDEE); 0 clears it'),
+      goal: num_('Coach goal: kg to lose per week (0 = maintain)'),
+      profile: PROFILE,
+    },
     ['profile'],
   ),
   tool(
@@ -639,6 +644,7 @@ export async function runTool(name: string, a: Args): Promise<ToolResult> {
       if (has(a, 'carbs')) patch.carbsTarget = num(a.carbs)
       if (has(a, 'fat')) patch.fatTarget = num(a.fat)
       if (has(a, 'maintenance')) patch.maintenanceKcal = num(a.maintenance) || null
+      if (has(a, 'goal')) patch.goalKgPerWeek = num(a.goal)
       if (Object.keys(patch).length === 0) return fail('pass at least one target')
       await updateProfile(p.id, patch)
       const n = { ...p, ...patch }
