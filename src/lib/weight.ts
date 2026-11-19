@@ -33,3 +33,21 @@ export function weightTrend(weights: { date: DateStr; kg: number }[]): WeightTre
   }
   return { avg7, perWeek }
 }
+
+/** ~kcal in 1 kg of body fat */
+export const KCAL_PER_KG = 7700
+
+/**
+ * Maintenance (TDEE) from your own data: average intake on tracked days over the
+ * last 4 weeks, adjusted by how fast weight moved. Losing 0.5 kg/week on 2,000
+ * kcal/day means you burn ≈ 2,000 + 0.5 × 7,700 / 7 ≈ 2,550.
+ */
+export function estimateMaintenance(
+  weights: { date: DateStr; kg: number }[],
+  dailyKcal: number[],
+): number | null {
+  const trend = weightTrend(weights)
+  if (!trend || trend.perWeek === null || dailyKcal.length < 14) return null
+  const avg = dailyKcal.reduce((s, k) => s + k, 0) / dailyKcal.length
+  return Math.round((avg - (trend.perWeek * KCAL_PER_KG) / 7) / 10) * 10
+}

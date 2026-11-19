@@ -41,6 +41,7 @@ export interface ProfileInput {
   proteinTarget: number
   carbsTarget: number
   fatTarget: number
+  maintenanceKcal?: number | null
 }
 
 export async function addProfile(input: ProfileInput): Promise<string> {
@@ -55,6 +56,7 @@ export async function addProfile(input: ProfileInput): Promise<string> {
     proteinTarget: clampInt(input.proteinTarget),
     carbsTarget: clampInt(input.carbsTarget),
     fatTarget: clampInt(input.fatTarget),
+    maintenanceKcal: input.maintenanceKcal ? clampInt(input.maintenanceKcal) : null,
     sortOrder: count,
     createdAt: now,
     updatedAt: now,
@@ -70,6 +72,9 @@ export async function updateProfile(
   if (clean.name != null) clean.name = clean.name.trim() || 'Profile'
   for (const k of ['kcalTarget', 'proteinTarget', 'carbsTarget', 'fatTarget'] as const) {
     if (clean[k] != null) clean[k] = clampInt(clean[k] as number)
+  }
+  if (clean.maintenanceKcal !== undefined) {
+    clean.maintenanceKcal = clean.maintenanceKcal ? clampInt(clean.maintenanceKcal) : null
   }
   await db.profiles.update(id, clean)
 }

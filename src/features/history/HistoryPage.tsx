@@ -26,10 +26,10 @@ import {
 } from '@/db/queries'
 import { deleteWeight, setCheatDay, setWeight } from '@/db/repo'
 import { cn } from '@/lib/cn'
-import type { LogEntry } from '@/db/types'
+import type { LogEntry, Profile } from '@/db/types'
 import { dayHeading, parseISO, shortDate, todayStr, weekdayShort, weekRange } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
-import { weightTrend } from '@/lib/weight'
+import { KCAL_PER_KG, weightTrend } from '@/lib/weight'
 import { EntryEditSheet } from '@/features/entries/EntryEditSheet'
 
 export function HistoryPage() {
@@ -102,7 +102,7 @@ export function HistoryPage() {
         </p>
       </Card>
 
-      {profile && <WeeklyBalance profileId={profile.id} kcalTarget={profile.kcalTarget} />}
+      {profile && <WeeklyBalance profile={profile} />}
 
       {cheat && <CheatMonthCard dates={cheat} />}
 
@@ -154,19 +154,24 @@ export function HistoryPage() {
 
 /** Each week's total vs. budget — only the days you tracked count, so a
  * forgotten day doesn't show up as a huge deficit. */
-function WeeklyBalance({ profileId, kcalTarget }: { profileId: string; kcalTarget: number }) {
-  const weeks = useWeekTotals(profileId, 8)
+function WeeklyBalance({ profile }: { profile: Profile }) {
+  const weeks = useWeekTotals(profile.id, 8)
   if (!weeks || weeks.length === 0) return null
   const [thisMonday] = weekRange(todayStr())
+  // vs. maintenance = real surplus / deficit; vs. target only says whether you hit the plan
+  const maintenance = profile.maintenanceKcal || null
+  const base = maintenance ?? profile.kcalTarget
 
   return (
     <Card className="flex flex-col gap-1">
       <SectionTitle className="px-0">Weekly balance</SectionTitle>
       <p className="mb-1 text-xs text-ink-faint">
-        Total vs. {fmtKcal(kcalTarget)}/day on the days you tracked. − is under (good for losing).
+        {maintenance
+          ? `Vs. your maintenance (${fmtKcal(maintenance)}/day) on the days you tracked. − is a real deficit (losing fat), + a surplus (gaining).`
+          : `Vs. your target (${fmtKcal(base)}/day) on the days you tracked. Add your maintenance to the profile in Settings to see your real surplus or deficit.`}
       </p>
       {weeks.map((w) => {
-        const diff = Math.round(w.kcal - kcalTarget * w.daysTracked)
+        const diff = Math.round(w.kcal - base * w.daysTracked)
         return (
           <div
             key={w.from}
@@ -180,10 +185,18 @@ function WeeklyBalance({ profileId, kcalTarget }: { profileId: string; kcalTarge
                 {fmtKcal(w.kcal)} kcal · {w.daysTracked} day{w.daysTracked === 1 ? '' : 's'} tracked
               </div>
             </div>
-            <span className={cn('shrink-0 font-extrabold', diff > 0 ? 'text-over' : 'text-accent')}>
-              {diff > 0 ? '+' : diff < 0 ? '−' : ''}
-              {fmtKcal(Math.abs(diff))}
-            </span>
+            <div className="shrink-0 text-right">
+              <div className={cn('font-extrabold', diff > 0 ? 'text-over' : 'text-accent')}>
+                {diff > 0 ? '+' : diff < 0 ? '−' : ''}
+                {fmtKcal(Math.abs(diff))}
+              </div>
+              {maintenance && Math.abs(diff) >= 100 && (
+                <div className="text-[0.65rem] font-semibold text-ink-faint">
+                  ≈ {diff > 0 ? '+' : '−'}
+                  {(Math.abs(diff) / KCAL_PER_KG).toFixed(2)} kg
+                </div>
+              )}
+            </div>
           </div>
         )
       })}

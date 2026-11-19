@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { lastNDays, shiftDay, todayStr, weekRange, type DateStr } from '@/lib/dates'
 import { addMacros, ZERO_MACROS, type Macros } from '@/lib/macros'
+import { estimateMaintenance } from '@/lib/weight'
 import { db } from './db'
 import { getSettings } from './repo'
 import type {
@@ -234,6 +235,31 @@ export function useWeekTotals(profileId: string | undefined, n: number): WeekTot
     }
     return weeks
   }, [profileId, n])
+}
+
+/** Maintenance estimated from the last 4 weeks of food + weight (null with too little data). */
+export function useMaintenanceEstimate(profileId: string | undefined): number | null | undefined {
+  return useLiveQuery(async () => {
+    if (!profileId) return null
+    const from = shiftDay(todayStr(), -27)
+    const [rows, cheats, weights] = await Promise.all([
+      db.logEntries.where('profileId').equals(profileId).toArray(),
+      db.cheatDays.where('profileId').equals(profileId).toArray(),
+      db.weights.where('profileId').equals(profileId).toArray(),
+    ])
+    const byDay = new Map<DateStr, number>()
+    for (const e of rows) if (e.date >= from) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.kcal)
+    const cheat: CheatMap = new Map(cheats.map((c) => [c.date, c.kcal ?? null]))
+    for (const [d, est] of cheat) {
+      if (d >= from && est) byDay.set(d, countedKcal(d, byDay.get(d) ?? 0, cheat))
+    }
+    // today is usually only half-logged — leave it out
+    const days = [...byDay].filter(([d, k]) => d < todayStr() && k > 0).map(([, k]) => k)
+    return estimateMaintenance(
+      weights.sort((a, b) => a.date.localeCompare(b.date)),
+      days,
+    )
+  }, [profileId])
 }
 
 /* -------------------------------- weight -------------------------------- */

@@ -11,6 +11,8 @@ export interface Profile {
   proteinTarget: number
   carbsTarget: number
   fatTarget: number
+  /** calories burned per day (TDEE) — what weekly surplus / deficit is measured against */
+  maintenanceKcal?: number | null
   sortOrder: number
   createdAt: number
   updatedAt: number

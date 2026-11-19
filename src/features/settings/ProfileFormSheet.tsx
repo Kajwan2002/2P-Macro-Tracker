@@ -4,9 +4,10 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { NumberField } from '@/components/NumberField'
 import { Sheet } from '@/components/Sheet'
 import { useToast } from '@/components/Toast'
-import { useProfiles } from '@/db/queries'
+import { useMaintenanceEstimate, useProfiles } from '@/db/queries'
 import { addProfile, deleteProfile, updateProfile } from '@/db/repo'
 import type { Profile } from '@/db/types'
+import { fmtKcal } from '@/lib/macros'
 import { ACCENTS } from '@/theme/accents'
 
 interface ProfileFormSheetProps {
@@ -25,6 +26,8 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
   const [protein, setProtein] = useState(150)
   const [carbs, setCarbs] = useState(220)
   const [fat, setFat] = useState(70)
+  const [maintenance, setMaintenance] = useState(0)
+  const estimate = useMaintenanceEstimate(profile?.id)
   const [confirmDel, setConfirmDel] = useState(false)
 
   useEffect(() => {
@@ -35,6 +38,7 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
     setProtein(profile?.proteinTarget ?? 150)
     setCarbs(profile?.carbsTarget ?? 220)
     setFat(profile?.fatTarget ?? 70)
+    setMaintenance(profile?.maintenanceKcal ?? 0)
   }, [open, profile])
 
   async function save() {
@@ -45,6 +49,7 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
       proteinTarget: protein,
       carbsTarget: carbs,
       fatTarget: fat,
+      maintenanceKcal: maintenance || null,
     }
     if (profile) await updateProfile(profile.id, input)
     else await addProfile(input)
@@ -93,6 +98,36 @@ export function ProfileFormSheet({ open, onClose, profile }: ProfileFormSheetPro
             <NumberField label="Carbs" value={carbs} onChange={setCarbs} suffix="g" />
             <NumberField label="Fat" value={fat} onChange={setFat} suffix="g" />
           </div>
+        </div>
+
+        <div>
+          <p className="mb-1 px-1 text-[0.7rem] font-bold text-ink-soft">Maintenance</p>
+          <NumberField
+            label="Calories you burn per day"
+            value={maintenance}
+            onChange={setMaintenance}
+            placeholder="optional"
+            suffix="kcal"
+          />
+          <p className="mt-1.5 px-1 text-xs text-ink-faint">
+            History's weekly balance uses this to show your real surplus or deficit.
+            {estimate ? (
+              <>
+                {' '}
+                From your last 4 weeks of food and weight: ≈{' '}
+                <span className="font-bold text-ink">{fmtKcal(estimate)}</span>.{' '}
+                <button
+                  type="button"
+                  onClick={() => setMaintenance(estimate)}
+                  className="font-bold text-accent"
+                >
+                  Use it
+                </button>
+              </>
+            ) : (
+              ' Log food and weigh in for 2+ weeks and the app will estimate it for you.'
+            )}
+          </p>
         </div>
 
         <Button full onClick={save}>

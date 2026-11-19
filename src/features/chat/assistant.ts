@@ -301,8 +301,8 @@ export const TOOLS: FunctionDeclaration[] = [
   ),
   tool(
     'update_targets',
-    'Change daily targets. Only pass the ones to change.',
-    { ...macros('per day'), profile: PROFILE },
+    'Change daily targets and/or maintenance (calories burned per day). Only pass the ones to change.',
+    { ...macros('per day'), maintenance: num_('Maintenance kcal/day (TDEE); 0 clears it'), profile: PROFILE },
     ['profile'],
   ),
   tool(
@@ -638,10 +638,14 @@ export async function runTool(name: string, a: Args): Promise<ToolResult> {
       if (has(a, 'protein')) patch.proteinTarget = num(a.protein)
       if (has(a, 'carbs')) patch.carbsTarget = num(a.carbs)
       if (has(a, 'fat')) patch.fatTarget = num(a.fat)
+      if (has(a, 'maintenance')) patch.maintenanceKcal = num(a.maintenance) || null
       if (Object.keys(patch).length === 0) return fail('pass at least one target')
       await updateProfile(p.id, patch)
       const n = { ...p, ...patch }
-      return done(`Targets for ${p.name}: ${n.kcalTarget} kcal · P ${n.proteinTarget} · C ${n.carbsTarget} · F ${n.fatTarget}`)
+      return done(
+        `Targets for ${p.name}: ${n.kcalTarget} kcal · P ${n.proteinTarget} · C ${n.carbsTarget} · F ${n.fatTarget}` +
+          (n.maintenanceKcal ? ` · maintenance ${n.maintenanceKcal} kcal` : ''),
+      )
     }
     case 'get_daily_totals': {
       const p = await profileFor(a)
