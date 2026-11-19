@@ -13,7 +13,9 @@ import { Segmented } from '@/components/Segmented'
 import { Sheet } from '@/components/Sheet'
 import { useToast } from '@/components/Toast'
 import {
+  countedKcal,
   dayTotals,
+  type CheatMap,
   useActiveProfile,
   useCheatDays,
   useDayEntries,
@@ -26,6 +28,7 @@ import { cn } from '@/lib/cn'
 import type { LogEntry } from '@/db/types'
 import { dayHeading, parseISO, shortDate, todayStr, weekdayShort } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
+import { weightTrend } from '@/lib/weight'
 import { EntryEditSheet } from '@/features/entries/EntryEditSheet'
 
 export function HistoryPage() {
@@ -36,10 +39,16 @@ export function HistoryPage() {
   const cheat = useCheatDays(profile?.id)
   const [openDay, setOpenDay] = useState<string | null>(null)
 
-  const loggedInRange = (days ?? []).filter((d) => d.macros.kcal > 0 && !cheat?.has(d.date))
-  const nLogged = loggedInRange.length || 1
-  const avgKcal = Math.round(loggedInRange.reduce((s, d) => s + d.macros.kcal, 0) / nLogged)
-  const avgProtein = round1(loggedInRange.reduce((s, d) => s + d.macros.protein, 0) / nLogged)
+  const kcalOf = (d: { date: string; macros: { kcal: number } }) =>
+    countedKcal(d.date, d.macros.kcal, cheat)
+  // cheat days count toward the calorie average (with their estimate) but not protein,
+  // since nobody estimates a cheat day's protein
+  const kcalDays = (days ?? []).filter((d) => kcalOf(d) > 0)
+  const avgKcal = Math.round(kcalDays.reduce((s, d) => s + kcalOf(d), 0) / (kcalDays.length || 1))
+  const proteinDays = (days ?? []).filter((d) => d.macros.kcal > 0 && !cheat?.has(d.date))
+  const avgProtein = round1(
+    proteinDays.reduce((s, d) => s + d.macros.protein, 0) / (proteinDays.length || 1),
+  )
 
   return (
     <Screen title="History" subtitle={profile?.name}>
@@ -60,14 +69,15 @@ export function HistoryPage() {
           formatValue={fmtKcal}
           bars={(days ?? []).map((d) => ({
             label: range === '7' ? weekdayShort(d.date) : d.date.slice(5).replace('-', '/'),
-            value: Math.round(d.macros.kcal),
+            value: Math.round(kcalOf(d)),
             target: cheat?.has(d.date) ? undefined : profile?.kcalTarget,
             muted: cheat?.has(d.date),
             highlight: d.date === todayStr(),
           }))}
         />
         <p className="text-xs text-ink-faint">
-          Avg on logged days: <span className="font-bold text-ink">{fmtKcal(avgKcal || 0)}</span> kcal
+          Avg on logged days (incl. cheat days):{' '}
+          <span className="font-bold text-ink">{fmtKcal(avgKcal || 0)}</span> kcal
           {profile ? ` · target ${fmtKcal(profile.kcalTarget)}` : ''}
         </p>
       </Card>
@@ -115,9 +125,11 @@ export function HistoryPage() {
               <MacroLine macros={d.macros} className="mt-0.5" />
             </div>
             <div className="shrink-0 text-right">
-              <div className="font-extrabold text-ink">{fmtKcal(d.macros.kcal)}</div>
+              <div className="font-extrabold text-ink">{fmtKcal(kcalOf(d))}</div>
               {cheat?.has(d.date) ? (
-                <div className="text-[0.65rem] font-bold text-accent">cheat day</div>
+                <div className="text-[0.65rem] font-bold text-accent">
+                  {kcalOf(d) > d.macros.kcal ? 'cheat day · est.' : 'cheat day'}
+                </div>
               ) : (
                 profile && (
                   <div className="text-[0.65rem] font-semibold text-ink-faint">
@@ -137,10 +149,10 @@ export function HistoryPage() {
   )
 }
 
-function CheatMonthCard({ dates }: { dates: Set<string> }) {
+function CheatMonthCard({ dates }: { dates: CheatMap }) {
   const thisMonth = todayStr().slice(0, 7)
   const [month, setMonth] = useState(thisMonth)
-  const count = [...dates].filter((d) => d.startsWith(month)).length
+  const count = [...dates.keys()].filter((d) => d.startsWith(month)).length
   const step = (n: number) => setMonth((m) => format(addMonths(parseISO(`${m}-01`), n), 'yyyy-MM'))
 
   return (
@@ -173,6 +185,32 @@ function CheatMonthCard({ dates }: { dates: Set<string> }) {
   )
 }
 
+/** 7-day average + rate of change, so a salty day doesn't look like a stall. */
+function WeightTrendLine({ trend }: { trend: NonNullable<ReturnType<typeof weightTrend>> }) {
+  const { avg7, perWeek } = trend
+  const pct = perWeek !== null ? (perWeek / avg7) * 100 : 0
+  return (
+    <div className="rounded-2xl bg-surface-2 px-3 py-2.5 text-xs text-ink-faint">
+      <div>
+        7-day average: <span className="font-bold text-ink">{round1(avg7)} kg</span>
+      </div>
+      {perWeek === null ? (
+        <div className="mt-0.5">Weigh in a few times a week for 2+ weeks to see your rate.</div>
+      ) : (
+        <div className="mt-0.5">
+          Last 4 weeks:{' '}
+          <span className="font-bold text-ink">
+            {perWeek > 0 ? '+' : perWeek < 0 ? '−' : ''}
+            {Math.abs(perWeek).toFixed(2)} kg/week
+          </span>{' '}
+          ({Math.abs(round1(pct))}% of body weight)
+          {Math.abs(perWeek) < 0.1 && ' · flat — if this holds 2–3 weeks, adjust a little'}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function WeightSection({ profileId }: { profileId: string }) {
   const toast = useToast()
   const weights = useWeights(profileId)
@@ -182,6 +220,7 @@ function WeightSection({ profileId }: { profileId: string }) {
 
   const points = (weights ?? []).map((w) => ({ x: w.date.slice(5), y: w.kg }))
   const latest = weights && weights.length ? weights[weights.length - 1] : null
+  const trend = weightTrend(weights ?? [])
 
   return (
     <Card className="flex flex-col gap-3">
@@ -205,6 +244,7 @@ function WeightSection({ profileId }: { profileId: string }) {
           Latest: <span className="font-bold text-ink">{latest.kg} kg</span> on {shortDate(latest.date)}
         </p>
       )}
+      {trend && <WeightTrendLine trend={trend} />}
 
       {weights && weights.length > 0 && (
         <div className="flex flex-col">

@@ -290,8 +290,13 @@ export const TOOLS: FunctionDeclaration[] = [
   tool('log_weight', 'Record body weight.', { kg: num_('Weight in kg'), date: DATE, profile: PROFILE }, ['profile', 'kg']),
   tool(
     'set_cheat_day',
-    'Mark or unmark a day as a cheat day.',
-    { date: DATE, on: bool_('true to mark (default), false to unmark'), profile: PROFILE },
+    'Mark or unmark a day as a cheat day. Cheat days still count toward the weekly total, using kcal (a rough estimate of the whole day) when given.',
+    {
+      date: DATE,
+      on: bool_('true to mark (default), false to unmark'),
+      kcal: num_('Optional rough estimate of the whole day\'s calories'),
+      profile: PROFILE,
+    },
     ['profile'],
   ),
   tool(
@@ -618,8 +623,12 @@ export async function runTool(name: string, a: Args): Promise<ToolResult> {
       if ('error' in p) return fail(p.error)
       const on = a.on !== false
       const date = dateArg(a)
-      await setCheatDay(p.id, date, on)
-      return done(`${on ? 'Marked' : 'Unmarked'} ${date} as a cheat day for ${p.name}`)
+      const kcal = a.kcal === undefined ? undefined : num(a.kcal)
+      await setCheatDay(p.id, date, on, kcal)
+      return done(
+        `${on ? 'Marked' : 'Unmarked'} ${date} as a cheat day for ${p.name}` +
+          (on && kcal ? ` (estimate ${Math.round(kcal)} kcal)` : ''),
+      )
     }
     case 'update_targets': {
       const p = await profileFor(a)

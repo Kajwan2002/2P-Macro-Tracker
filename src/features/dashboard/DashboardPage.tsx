@@ -1,17 +1,27 @@
+import { differenceInCalendarDays } from 'date-fns'
 import { useState } from 'react'
 import { Card } from '@/components/Card'
 import { cn } from '@/lib/cn'
 import { EmptyState } from '@/components/EmptyState'
 import { MacroBar, MacroLine } from '@/components/MacroBits'
+import { NumberField } from '@/components/NumberField'
 import { PeriodNav } from '@/components/PeriodNav'
 import { ProfileSwitcher } from '@/components/ProfileSwitcher'
 import { Ring } from '@/components/Ring'
 import { Screen } from '@/components/Screen'
-import { dayTotals, useActiveProfile, useCheatDays, useDayEntries, useIngredientMap } from '@/db/queries'
+import {
+  countedKcal,
+  dayTotals,
+  useActiveProfile,
+  useCheatDays,
+  useDayEntries,
+  useIngredientMap,
+  useWeekKcal,
+} from '@/db/queries'
 import { setCheatDay } from '@/db/repo'
-import type { LogEntry } from '@/db/types'
+import type { LogEntry, Profile } from '@/db/types'
 import { entryAmountText } from '@/lib/amount'
-import { dayHeading, maxLogDate, shiftDay, todayStr } from '@/lib/dates'
+import { dayHeading, maxLogDate, parseISO, shiftDay, todayStr } from '@/lib/dates'
 import { fmtKcal, round1 } from '@/lib/macros'
 import { EntryEditSheet } from '@/features/entries/EntryEditSheet'
 import { AddEntrySheet } from './AddEntrySheet'
@@ -22,7 +32,8 @@ export function DashboardPage() {
   const entries = useDayEntries(profile?.id, date)
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<LogEntry | null>(null)
-  const isCheat = useCheatDays(profile?.id)?.has(date) ?? false
+  const cheat = useCheatDays(profile?.id)
+  const isCheat = cheat?.has(date) ?? false
   const ingredientsById = useIngredientMap()
   const amountText = (e: LogEntry) => entryAmountText(e, ingredientsById)
 
@@ -59,10 +70,25 @@ export function DashboardPage() {
       />
 
       {isCheat ? (
-        <Card className="py-6 text-center">
-          <div className="font-extrabold text-ink">Cheat day</div>
-          <div className="text-xs font-semibold text-ink-faint">
-            {fmtKcal(totals.kcal)} kcal logged · not counted
+        <Card className="flex flex-col gap-3 py-5">
+          <div className="text-center">
+            <div className="font-extrabold text-ink">Cheat day</div>
+            <div className="text-xs font-semibold text-ink-faint">
+              Not judged against the daily target, but it still counts toward your week.
+            </div>
+          </div>
+          {profile && (
+            <NumberField
+              label="Rough guess for the whole day (optional)"
+              value={cheat?.get(date) ?? 0}
+              onChange={(n) => setCheatDay(profile.id, date, true, n)}
+              placeholder="e.g. 3000"
+              suffix="kcal"
+            />
+          )}
+          <div className="text-center text-xs font-semibold text-ink-faint">
+            {fmtKcal(totals.kcal)} kcal logged · counting{' '}
+            <span className="font-bold text-ink">{fmtKcal(countedKcal(date, totals.kcal, cheat))}</span>
           </div>
         </Card>
       ) : (
@@ -112,6 +138,8 @@ export function DashboardPage() {
           </Card>
         </>
       )}
+
+      {profile && <WeekCard profile={profile} date={date} />}
 
       <div className="flex flex-col gap-2">
         {(entries?.length ?? 0) === 0 ? (
@@ -165,5 +193,43 @@ export function DashboardPage() {
       )}
       <EntryEditSheet entry={editing} onClose={() => setEditing(null)} />
     </Screen>
+  )
+}
+
+/** The week's calorie budget: daily target × 7, so a lighter day leaves room for a bigger one. */
+function WeekCard({ profile, date }: { profile: Profile; date: string }) {
+  const week = useWeekKcal(profile.id, date)
+  if (!week) return null
+  const budget = profile.kcalTarget * 7
+  const eaten = [...week.byDay.values()].reduce((s, k) => s + k, 0)
+  const left = budget - eaten
+
+  // for the current week: what each remaining day (today included) can average
+  const today = todayStr()
+  const isThisWeek = today >= week.from && today <= week.to
+  const daysToGo = isThisWeek ? differenceInCalendarDays(parseISO(week.to), parseISO(today)) + 1 : 0
+  const eatenBeforeToday = [...week.byDay].reduce((s, [d, k]) => (d < today ? s + k : s), 0)
+  const perDay = daysToGo ? (budget - eatenBeforeToday) / daysToGo : 0
+
+  return (
+    <Card className="flex flex-col gap-2 py-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-bold text-ink-soft">This week</span>
+        <span className="text-sm font-semibold text-ink-faint">
+          <span className="font-extrabold text-ink">{fmtKcal(eaten)}</span> / {fmtKcal(budget)} kcal
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className={cn('h-full rounded-full', left < 0 ? 'bg-over' : 'bg-accent')}
+          style={{ width: `${Math.min(100, (eaten / Math.max(1, budget)) * 100)}%` }}
+        />
+      </div>
+      <div className="text-xs font-semibold text-ink-faint">
+        {left >= 0 ? `${fmtKcal(left)} left` : `${fmtKcal(-left)} over`}
+        {daysToGo > 0 &&
+          ` · ≈ ${fmtKcal(Math.max(0, Math.round(perDay)))}/day for ${daysToGo === 1 ? 'today' : `the next ${daysToGo} days`}`}
+      </div>
+    </Card>
   )
 }

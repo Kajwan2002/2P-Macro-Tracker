@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { lastNDays, type DateStr } from '@/lib/dates'
+import { lastNDays, weekRange, type DateStr } from '@/lib/dates'
 import { addMacros, ZERO_MACROS, type Macros } from '@/lib/macros'
 import { db } from './db'
 import { getSettings } from './repo'
@@ -149,13 +149,45 @@ export function useLoggedDays(profileId: string | undefined): DayTotal[] | undef
 
 /* ------------------------------ cheat days ------------------------------ */
 
-/** All cheat-day dates for a profile. */
-export function useCheatDays(profileId: string | undefined): Set<DateStr> | undefined {
+/** A profile's cheat days: date → rough kcal estimate (null when none was given). */
+export type CheatMap = Map<DateStr, number | null>
+
+export function useCheatDays(profileId: string | undefined): CheatMap | undefined {
   return useLiveQuery(async () => {
-    if (!profileId) return new Set<DateStr>()
+    if (!profileId) return new Map() as CheatMap
     const rows = await db.cheatDays.where('profileId').equals(profileId).toArray()
-    return new Set(rows.map((r) => r.date))
+    return new Map(rows.map((r) => [r.date, r.kcal ?? null])) as CheatMap
   }, [profileId])
+}
+
+/** Calories a day counts for: on a cheat day, the estimate if it's higher than what was logged. */
+export function countedKcal(date: DateStr, loggedKcal: number, cheat: CheatMap | undefined): number {
+  return Math.max(loggedKcal, cheat?.get(date) ?? 0)
+}
+
+/** Counted kcal per day for the Mon–Sun week containing `date`. */
+export function useWeekKcal(
+  profileId: string | undefined,
+  date: DateStr,
+): { from: DateStr; to: DateStr; byDay: Map<DateStr, number> } | undefined {
+  return useLiveQuery(async () => {
+    const [from, to] = weekRange(date)
+    const byDay = new Map<DateStr, number>()
+    if (!profileId) return { from, to, byDay }
+    const [rows, cheats] = await Promise.all([
+      db.logEntries
+        .where('[profileId+date]')
+        .between([profileId, from], [profileId, to], true, true)
+        .toArray(),
+      db.cheatDays.where('profileId').equals(profileId).toArray(),
+    ])
+    for (const e of rows) byDay.set(e.date, (byDay.get(e.date) ?? 0) + e.kcal)
+    const cheat: CheatMap = new Map(cheats.map((c) => [c.date, c.kcal ?? null]))
+    for (const [d, est] of cheat) {
+      if (d >= from && d <= to && est) byDay.set(d, countedKcal(d, byDay.get(d) ?? 0, cheat))
+    }
+    return { from, to, byDay }
+  }, [profileId, date])
 }
 
 /* -------------------------------- weight -------------------------------- */

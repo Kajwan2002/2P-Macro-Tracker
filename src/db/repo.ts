@@ -459,10 +459,23 @@ export async function deleteWeight(id: string): Promise<void> {
 
 /* ------------------------------ cheat days ------------------------------ */
 
-export async function setCheatDay(profileId: string, date: string, on: boolean): Promise<void> {
+/** Mark / unmark a cheat day. `kcal` sets the day's rough estimate (kept when omitted). */
+export async function setCheatDay(
+  profileId: string,
+  date: string,
+  on: boolean,
+  kcal?: number | null,
+): Promise<void> {
   const id = `${profileId}:${date}`
-  if (on) await db.cheatDays.put({ id, profileId, date, createdAt: Date.now() })
-  else await db.cheatDays.delete(id)
+  if (!on) return db.cheatDays.delete(id)
+  const existing = await db.cheatDays.get(id)
+  await db.cheatDays.put({
+    id,
+    profileId,
+    date,
+    kcal: kcal === undefined ? (existing?.kcal ?? null) : kcal ? clampInt(kcal) : null,
+    createdAt: existing?.createdAt ?? Date.now(),
+  })
 }
 
 /* -------------------------------- utils -------------------------------- */

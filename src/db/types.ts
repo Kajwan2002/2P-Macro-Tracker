@@ -152,12 +152,15 @@ export interface WeightEntry {
 
 /* ------------------------------ cheat days ------------------------------ */
 
-/** A day one profile marked as a cheat day — not counted in averages. */
+/** A day one profile marked as a cheat day — not judged against the daily target,
+ * but it still counts toward the week (using `kcal` when given). */
 export interface CheatDay {
   /** `${profileId}:${date}` — one row per profile per day */
   id: string
   profileId: string
   date: DateStr
+  /** rough estimate of the whole day's calories, when the food wasn't logged */
+  kcal?: number | null
   createdAt: number
 }
 

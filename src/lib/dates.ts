@@ -1,4 +1,4 @@
-import { addDays, format, isToday, isTomorrow, isYesterday, parseISO } from 'date-fns'
+import { addDays, format, isToday, isTomorrow, isYesterday, parseISO, startOfWeek } from 'date-fns'
 
 // Dates are stored as plain "YYYY-MM-DD" strings so there is never timezone drift.
 export type DateStr = string
@@ -14,6 +14,12 @@ export function toDateStr(d: Date): DateStr {
 /** step a "YYYY-MM-DD" string by n days */
 export function shiftDay(date: DateStr, n: number): DateStr {
   return toDateStr(addDays(parseISO(date), n))
+}
+
+/** Monday and Sunday of the week `date` falls in. */
+export function weekRange(date: DateStr): [DateStr, DateStr] {
+  const mon = toDateStr(startOfWeek(parseISO(date), { weekStartsOn: 1 }))
+  return [mon, shiftDay(mon, 6)]
 }
 
 export function isTodayStr(date: DateStr): boolean {
