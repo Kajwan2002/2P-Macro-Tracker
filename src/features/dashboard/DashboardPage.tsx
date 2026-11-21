@@ -23,6 +23,7 @@ import { applyCoachTarget, setCheatDay } from '@/db/repo'
 import { Button } from '@/components/Button'
 import { useToast } from '@/components/Toast'
 import { COACH_MIN_CHANGE, coachHeadline } from '@/lib/coach'
+import { KCAL_PER_KG } from '@/lib/weight'
 import type { LogEntry, Profile } from '@/db/types'
 import { entryAmountText } from '@/lib/amount'
 import { dayHeading, maxLogDate, parseISO, shiftDay, todayStr } from '@/lib/dates'
@@ -222,6 +223,11 @@ function WeekCard({ profile, date }: { profile: Profile; date: string }) {
   const pace = isThisWeek ? profile.kcalTarget * (8 - daysToGo) : 0
   const vsPace = eaten - pace
   const pct = (n: number) => `${Math.min(100, (n / Math.max(1, budget)) * 100)}%`
+  // the real balance: eaten vs. what the body burned on the days tracked so far
+  // (same numbers as History's weekly balance)
+  const burn = week.burn ?? profile.maintenanceKcal ?? null
+  const daysTracked = [...week.byDay.values()].filter((k) => k > 0).length
+  const balance = burn ? Math.round(eaten - burn * daysTracked) : 0
 
   return (
     <Card className="flex flex-col gap-2 py-4">
@@ -257,6 +263,25 @@ function WeekCard({ profile, date }: { profile: Profile; date: string }) {
         {daysToGo > 0 &&
           ` · ≈ ${fmtKcal(Math.max(0, Math.round(perDay)))}/day for ${daysToGo === 1 ? 'today' : `the next ${daysToGo} days`}`}
       </div>
+      {burn && daysTracked > 0 && (
+        <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-surface-2 pt-2">
+          <span className="text-xs font-semibold text-ink-faint">
+            Vs. your burn (≈ {fmtKcal(burn)} × {daysTracked} day{daysTracked === 1 ? '' : 's'})
+          </span>
+          <span className="shrink-0 text-right">
+            <span className={cn('font-extrabold', balance > 0 ? 'text-over' : 'text-accent')}>
+              {balance > 0 ? '+' : balance < 0 ? '−' : ''}
+              {fmtKcal(Math.abs(balance))}
+            </span>
+            {Math.abs(balance) >= 100 && (
+              <span className="ml-1 text-[0.65rem] font-semibold text-ink-faint">
+                ≈ {balance > 0 ? '+' : '−'}
+                {(Math.abs(balance) / KCAL_PER_KG).toFixed(2)} kg
+              </span>
+            )}
+          </span>
+        </div>
+      )}
     </Card>
   )
 }

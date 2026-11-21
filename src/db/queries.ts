@@ -186,17 +186,25 @@ export interface WeekKcal {
   from: DateStr
   to: DateStr
   byDay: Map<DateStr, number>
+  /** burn rate estimated for this week (see WeekTotal.burn) */
+  burn: number | null
 }
 
-/** Counted kcal per day for the Mon–Sun week containing `date`. */
+/** Counted kcal per day for the Mon–Sun week containing `date`, plus that week's burn rate. */
 export async function loadWeekKcal(profileId: string, date: DateStr): Promise<WeekKcal> {
   const [from, to] = weekRange(date)
-  return { from, to, byDay: await countedByDay(profileId, from, to) }
+  const yesterday = shiftDay(todayStr(), -1)
+  const [all, weights] = await Promise.all([
+    countedByDay(profileId, shiftDay(from, -27), to),
+    sortedWeights(profileId),
+  ])
+  const byDay = new Map([...all].filter(([d]) => d >= from))
+  return { from, to, byDay, burn: estimateAt(all, weights, to < yesterday ? to : yesterday) }
 }
 
 export function useWeekKcal(profileId: string | undefined, date: DateStr): WeekKcal | undefined {
   return useLiveQuery(async () => {
-    if (!profileId) return { from: weekRange(date)[0], to: weekRange(date)[1], byDay: new Map() }
+    if (!profileId) return { from: weekRange(date)[0], to: weekRange(date)[1], byDay: new Map(), burn: null }
     return loadWeekKcal(profileId, date)
   }, [profileId, date])
 }

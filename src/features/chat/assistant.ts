@@ -70,7 +70,7 @@ async function progressLines(p: Profile): Promise<string[]> {
   const latest = weights[weights.length - 1]
   return [
     `  Maintenance (burn rate): ${m ? `${m.kcal} kcal/day (${m.source === 'estimate' ? 'auto-estimated from the last 4 weeks of food + weight' : 'saved fallback — not enough data to estimate'})` : 'unknown — not enough data yet'} · coach goal: ${p.goalKgPerWeek != null ? `lose ${p.goalKgPerWeek} kg/week` : 'off'}`,
-    `  This week (${week.from} to ${week.to}, cheat estimates included): ${fmtKcal(eaten)} of ${fmtKcal(budget)} kcal budget; on pace by tonight would be ${fmtKcal(pace)} (${eaten > pace ? `${fmtKcal(eaten - pace)} over` : `${fmtKcal(pace - eaten)} under`})`,
+    `  This week (${week.from} to ${week.to}, cheat estimates included): ${fmtKcal(eaten)} of ${fmtKcal(budget)} kcal budget; on pace by tonight would be ${fmtKcal(pace)} (${eaten > pace ? `${fmtKcal(eaten - pace)} over` : `${fmtKcal(pace - eaten)} under`})${weekBalance(week, p)}`,
     cheat
       ? `  Today is a CHEAT DAY — current whole-day estimate: ${cheat.kcal ? `${cheat.kcal} kcal` : 'none yet'}`
       : '  Today is a normal day (not a cheat day).',
@@ -79,6 +79,15 @@ async function progressLines(p: Profile): Promise<string[]> {
       : '  Weight: no weigh-ins yet.',
     `  Coach: ${coachSummary(p, coach)}`,
   ]
+}
+
+/** "; vs burn: −3,200 kcal" — eaten minus burn × tracked days, as on the Today card. */
+function weekBalance(week: { byDay: Map<string, number>; burn: number | null }, p: Profile): string {
+  const burn = week.burn ?? p.maintenanceKcal ?? null
+  const days = [...week.byDay.values()].filter((k) => k > 0)
+  if (!burn || days.length === 0) return ''
+  const bal = Math.round(days.reduce((s, k) => s + k, 0) - burn * days.length)
+  return `; real balance vs burn (${burn}/day × ${days.length} tracked days): ${bal > 0 ? '+' : ''}${fmtKcal(bal)} kcal (${bal > 0 ? 'surplus' : 'deficit'})`
 }
 
 function coachSummary(p: Profile, coach: CoachState): string {
