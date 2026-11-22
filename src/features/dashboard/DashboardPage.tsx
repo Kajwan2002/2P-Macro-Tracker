@@ -273,7 +273,7 @@ function WeekCard({ profile, date }: { profile: Profile; date: string }) {
         {burn && (
           <span>
             <span className={cn('font-bold', balance > 0 ? 'text-over' : 'text-accent')}>{signed(balance)}</span>{' '}
-            vs burn
+            vs <span className="font-bold text-ink">{fmtKcal(weekBurn)}</span> burn
           </span>
         )}
       </div>
