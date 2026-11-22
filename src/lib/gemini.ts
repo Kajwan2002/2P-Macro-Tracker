@@ -134,7 +134,7 @@ const TRY_NEXT = new Set([404, 408, 429, 500, 502, 503, 504])
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** One request may not hang longer than this (a stalled phone connection never ends on its own). */
-const REQUEST_TIMEOUT_MS = 45_000
+const REQUEST_TIMEOUT_MS = 30_000
 /** A whole turn (tool rounds and model fallbacks included) gives up after this. */
 const TURN_TIMEOUT_MS = 120_000
 
@@ -156,10 +156,35 @@ async function fetchWithTimeout(url: string, init: RequestInit, outer?: AbortSig
   }
 }
 
-/** The chosen model first, then the others (no duplicates). */
+/*
+ * Models that just stalled or said they're busy are skipped for a while, so every
+ * message doesn't first sit through the same slow model before reaching one that
+ * works. Kept in localStorage so it survives the app being closed.
+ */
+const COOLDOWN_STORAGE = 'macro-tracker.gemini-cooldown'
+const COOLDOWN_MS = 30 * 60_000
+
+function cooldowns(): Record<string, number> {
+  try {
+    return JSON.parse(read(COOLDOWN_STORAGE) || '{}') as Record<string, number>
+  } catch {
+    return {}
+  }
+}
+function setCooldown(model: string, on: boolean) {
+  const all = cooldowns()
+  if (on) all[model] = Date.now() + COOLDOWN_MS
+  else delete all[model]
+  write(COOLDOWN_STORAGE, Object.keys(all).length ? JSON.stringify(all) : '')
+}
+
+/** The chosen model first, then the others — but models cooling down go last. */
 function modelChain(): string[] {
   const first = getGeminiModel()
-  return [first, ...FALLBACK_MODELS.filter((m) => m !== first)]
+  const all = [first, ...FALLBACK_MODELS.filter((m) => m !== first)]
+  const until = cooldowns()
+  const cooling = (m: string) => (until[m] ?? 0) > Date.now()
+  return [...all.filter((m) => !cooling(m)), ...all.filter(cooling)]
 }
 
 /**
@@ -197,14 +222,19 @@ async function generate(
         // a stalled request: try the next model; anything else (offline, Stop) ends the turn
         if (err instanceof GeminiError && err.status === 408) {
           last = err
+          setCooldown(model, true)
           continue
         }
         throw err
       }
       const json = await res.json().catch(() => ({}))
-      if (res.ok) return { json, model }
+      if (res.ok) {
+        setCooldown(model, false)
+        return { json, model }
+      }
       last = new GeminiError(json?.error?.message ?? res.statusText, res.status)
       if (!TRY_NEXT.has(res.status)) throw last
+      setCooldown(model, true)
     }
   }
   throw last ?? new GeminiError('No response', 503)
