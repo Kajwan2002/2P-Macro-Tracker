@@ -23,7 +23,6 @@ import { applyCoachTarget, setCheatDay } from '@/db/repo'
 import { Button } from '@/components/Button'
 import { useToast } from '@/components/Toast'
 import { COACH_MIN_CHANGE, coachHeadline } from '@/lib/coach'
-import { KCAL_PER_KG } from '@/lib/weight'
 import type { LogEntry, Profile } from '@/db/types'
 import { entryAmountText } from '@/lib/amount'
 import { dayHeading, maxLogDate, parseISO, shiftDay, todayStr } from '@/lib/dates'
@@ -206,112 +205,78 @@ export function DashboardPage() {
 }
 
 /** The week's calorie budget: daily target × 7, so a lighter day leaves room for a bigger one. */
+/**
+ * The week at a glance. The bar runs to the week's break-even (burn × 7): accent up
+ * to the target, yellow over target but still a deficit, red past break-even. The
+ * white tick is where the target pace would put you by tonight.
+ */
 function WeekCard({ profile, date }: { profile: Profile; date: string }) {
   const week = useWeekKcal(profile.id, date)
   if (!week) return null
   const budget = profile.kcalTarget * 7
   const eaten = [...week.byDay.values()].reduce((s, k) => s + k, 0)
-  const left = budget - eaten
+  const left = Math.round(budget - eaten)
 
-  // for the current week: what each remaining day (today included) can average
   const today = todayStr()
   const isThisWeek = today >= week.from && today <= week.to
-  const daysToGo = isThisWeek ? differenceInCalendarDays(parseISO(week.to), parseISO(today)) + 1 : 0
-  const eatenBeforeToday = [...week.byDay].reduce((s, [d, k]) => (d < today ? s + k : s), 0)
-  const perDay = daysToGo ? (budget - eatenBeforeToday) / daysToGo : 0
-  // where you'd be by tonight eating exactly the target every day so far
-  const pace = isThisWeek ? profile.kcalTarget * (8 - daysToGo) : 0
-  const vsPace = eaten - pace
-  // the real balance: eaten vs. what the body burns over the WHOLE week. Starts at
-  // −(burn × 7) on Monday and climbs toward zero as food is logged; what's left is
-  // the room before the week stops being a deficit.
+  const daysIn = isThisWeek ? differenceInCalendarDays(parseISO(today), parseISO(week.from)) + 1 : 0
+  const pace = profile.kcalTarget * daysIn
+
   const burn = week.burn ?? profile.maintenanceKcal ?? null
   const weekBurn = burn ? burn * 7 : 0
   const balance = Math.round(eaten - weekBurn)
-  // bar zones: accent up to the target, yellow up to break-even (over plan but still a
-  // deficit), red past break-even (a real surplus)
+
   const limit = Math.max(budget, weekBurn)
   const scale = Math.max(1, limit, eaten)
   const pct = (n: number) => `${Math.min(100, (Math.max(0, n) / scale) * 100)}%`
-  const showTargetMark = weekBurn > budget
+  const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmtKcal(Math.abs(n))}`
 
   return (
-    <Card className="flex flex-col gap-2 py-4">
-      <div className="flex items-baseline justify-between gap-2">
+    <Card className="flex flex-col gap-2.5 py-4">
+      <div className="flex items-baseline justify-between">
         <span className="text-sm font-bold text-ink-soft">This week</span>
         <span className="text-sm font-semibold text-ink-faint">
-          <span className="font-extrabold text-ink">{fmtKcal(eaten)}</span> / {fmtKcal(budget)} kcal
+          <span className="font-extrabold text-ink">{fmtKcal(eaten)}</span> / {fmtKcal(budget)}
         </span>
       </div>
-      <div className="relative h-2.5 overflow-hidden rounded-full bg-surface-2">
-        <div className="absolute inset-y-0 left-0 bg-accent" style={{ width: pct(Math.min(eaten, budget)) }} />
-        {eaten > budget && (
+
+      <div className="relative">
+        <div className="relative h-2.5 overflow-hidden rounded-full bg-surface-2">
+          <div className="absolute inset-y-0 left-0 bg-accent" style={{ width: pct(Math.min(eaten, budget)) }} />
+          {eaten > budget && (
+            <div
+              className="absolute inset-y-0 bg-warn"
+              style={{ left: pct(budget), width: pct(Math.min(eaten, limit) - budget) }}
+            />
+          )}
+          {eaten > limit && (
+            <div className="absolute inset-y-0 bg-over" style={{ left: pct(limit), width: pct(eaten - limit) }} />
+          )}
+          {weekBurn > budget && (
+            <div className="absolute inset-y-0 w-px bg-ink-faint" style={{ left: pct(budget) }} />
+          )}
+        </div>
+        {isThisWeek && (
           <div
-            className="absolute inset-y-0 bg-warn"
-            style={{ left: pct(budget), width: pct(Math.min(eaten, limit) - budget) }}
-          />
-        )}
-        {eaten > limit && (
-          <div className="absolute inset-y-0 bg-over" style={{ left: pct(limit), width: pct(eaten - limit) }} />
-        )}
-        {showTargetMark && (
-          <div
-            className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-ink-faint"
-            style={{ left: pct(budget) }}
+            className="absolute -top-1 h-4.5 w-0.5 -translate-x-1/2 rounded-full bg-ink"
+            style={{ left: pct(pace) }}
             aria-hidden
           />
         )}
       </div>
-      {isThisWeek && (
-        <div className="relative -mt-2 h-0" aria-hidden>
-          <div
-            className="absolute -top-1.5 h-4 w-0.5 -translate-x-1/2 rounded-full bg-ink"
-            style={{ left: pct(pace) }}
-          />
-        </div>
-      )}
-      {showTargetMark && (
-        <div className="flex justify-between gap-2 text-[0.6rem] font-semibold text-ink-faint">
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-accent" /> target {fmtKcal(budget)}
+
+      <div className="flex items-baseline justify-between text-xs font-semibold text-ink-faint">
+        <span>
+          <span className={cn('font-bold', left < 0 ? 'text-warn' : 'text-ink')}>{fmtKcal(Math.abs(left))}</span>{' '}
+          {left < 0 ? 'over target' : 'left'}
+        </span>
+        {burn && (
+          <span>
+            <span className={cn('font-bold', balance > 0 ? 'text-over' : 'text-accent')}>{signed(balance)}</span>{' '}
+            vs burn
           </span>
-          <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-warn" /> still losing up to {fmtKcal(weekBurn)}
-          </span>
-        </div>
-      )}
-      {isThisWeek && (
-        <div className="text-xs font-semibold text-ink-faint">
-          On pace by tonight: {fmtKcal(pace)} ·{' '}
-          <span className={cn('font-bold', vsPace > 0 ? 'text-over' : 'text-ink')}>
-            {vsPace > 0 ? `${fmtKcal(vsPace)} over` : `${fmtKcal(-vsPace)} under`}
-          </span>
-        </div>
-      )}
-      <div className="text-xs font-semibold text-ink-faint">
-        {left >= 0 ? `${fmtKcal(left)} left` : `${fmtKcal(-left)} over`}
-        {daysToGo > 0 &&
-          left > 0 &&
-          ` · ≈ ${fmtKcal(Math.max(0, Math.round(perDay)))}/day for ${daysToGo === 1 ? 'today' : `the next ${daysToGo} days`}`}
+        )}
       </div>
-      {burn && (
-        <div className="mt-1 flex flex-col gap-0.5 border-t border-surface-2 pt-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-xs font-semibold text-ink-faint">
-              Vs. burn (≈ {fmtKcal(burn)} × 7 days)
-            </span>
-            <span className={cn('shrink-0 font-extrabold', balance > 0 ? 'text-over' : 'text-accent')}>
-              {balance > 0 ? '+' : balance < 0 ? '−' : ''}
-              {fmtKcal(Math.abs(balance))}
-            </span>
-          </div>
-          <span className="text-[0.65rem] font-semibold text-ink-faint">
-            {balance <= 0
-              ? `You can eat ${fmtKcal(-balance)} more this week and still break even.`
-              : `${fmtKcal(balance)} over what you burn this week ≈ +${(balance / KCAL_PER_KG).toFixed(2)} kg.`}
-          </span>
-        </div>
-      )}
     </Card>
   )
 }
