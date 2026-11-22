@@ -89,7 +89,9 @@ export function friendlyError(err: unknown): string {
     }
     return `Gemini error (${err.status}): ${err.message}`
   }
-  return 'Couldn’t reach Gemini. Are you online?'
+  // fetch reports a lost connection as a TypeError ("Load failed" on iPhone)
+  if (err instanceof TypeError || !(err instanceof Error)) return 'Couldn’t reach Gemini. Are you online?'
+  return `Something went wrong: ${err.message}`
 }
 
 /* ---------------------------------- call ---------------------------------- */
@@ -103,6 +105,8 @@ interface AskOptions {
   runTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>
   /** aborts the whole turn (the Stop button) */
   signal?: AbortSignal
+  /** progress for the Thinking bubble, e.g. "Asking gemini-3.6-flash…" */
+  onStatus?: (status: string) => void
 }
 
 const MAX_TOOL_ROUNDS = 6
@@ -168,6 +172,7 @@ async function generate(
   chain: string[],
   signal?: AbortSignal,
   deadline = Date.now() + TURN_TIMEOUT_MS,
+  onStatus?: (status: string) => void,
 ): Promise<{ json: Record<string, unknown>; model: string }> {
   const key = getGeminiKey()
   if (!key) throw new GeminiError('No API key', 400)
@@ -176,6 +181,7 @@ async function generate(
     if (pass > 0) await sleep(2500)
     for (const model of chain) {
       if (Date.now() > deadline) throw new GeminiError('Timed out', 408)
+      onStatus?.(`Asking ${model}…`)
       let res: Response
       try {
         res = await fetchWithTimeout(
@@ -256,6 +262,7 @@ export async function askGemini(opts: AskOptions): Promise<string> {
       usedModel ? [usedModel] : modelChain(),
       opts.signal,
       deadline,
+      opts.onStatus,
     )
     usedModel = model
     const json = raw as { candidates?: { content?: Content }[] }
@@ -283,6 +290,7 @@ export async function askGemini(opts: AskOptions): Promise<string> {
     // keep the model's turn exactly as returned, then answer each call
     contents.push({ role: 'model', parts })
     const responses: Part[] = []
+    opts.onStatus?.('Updating the app…')
     for (const { functionCall } of calls) {
       let result: ToolResult
       try {

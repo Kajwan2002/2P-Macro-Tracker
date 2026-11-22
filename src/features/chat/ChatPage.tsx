@@ -41,6 +41,15 @@ function withoutConfirmations(text: string): string {
     .trim()
 }
 
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('The app took too long to prepare the chat — close and reopen it.')), ms),
+    ),
+  ])
+}
+
 function toHistory(messages: ChatMessage[]): Content[] {
   const turns: Content[] = messages.slice(-HISTORY_LIMIT).map((m) => ({
     role: m.role,
@@ -74,6 +83,14 @@ export function ChatPage() {
   const [image, setImage] = useState<(ChatImage & { preview: string }) | null>(null)
   const [busy, setBusy] = useState(false)
   const turn = useRef<AbortController | null>(null)
+  const [status, setStatus] = useState('')
+  const [startedAt, setStartedAt] = useState(0)
+  const [now, setNow] = useState(0)
+  useEffect(() => {
+    if (!busy) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [busy])
   const [error, setError] = useState<string | null>(null)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [mic, setMic] = useState<'idle' | 'recording' | 'transcribing'>('idle')
@@ -150,18 +167,24 @@ export function ChatPage() {
     setImage(null)
     setError(null)
     setBusy(true)
+    setStatus('Preparing…')
+    setStartedAt(Date.now())
+    setNow(Date.now())
     const ctrl = new AbortController()
     turn.current = ctrl
-    await addChatMessage('user', text, !!attached)
     try {
+      await addChatMessage('user', text, !!attached)
+      // the app's own preparation gets a time limit too, so nothing can hang silently
+      const [system, tools] = await withTimeout(Promise.all([buildSystemPrompt(), buildTools()]), 15_000)
       const reply = await askGemini({
-        system: await buildSystemPrompt(),
+        system,
         history: toHistory(prior),
         text,
         image: attached,
-        tools: await buildTools(),
+        tools,
         runTool,
         signal: ctrl.signal,
+        onStatus: setStatus,
       })
       await addChatMessage('model', reply)
     } catch (err) {
@@ -276,7 +299,8 @@ export function ChatPage() {
             ))}
             {busy && (
               <div className="flex items-center gap-3 self-start rounded-2xl bg-surface px-3.5 py-2.5 text-sm text-ink-faint shadow-card">
-                Thinking…
+                {status || 'Thinking…'}
+                {now - startedAt >= 3000 && <span className="tabular-nums">{Math.round((now - startedAt) / 1000)}s</span>}
                 <button
                   type="button"
                   onClick={() => turn.current?.abort()}

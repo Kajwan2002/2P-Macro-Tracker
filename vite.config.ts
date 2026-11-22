@@ -23,6 +23,12 @@ export default defineConfig(({ mode }) => {
   return {
     base,
     build: { outDir: 'dist', emptyOutDir: true },
+    // shown in Settings, so it's easy to tell which version a phone is running
+    define: {
+      __APP_VERSION__: JSON.stringify(
+        `${new Date().toISOString().slice(0, 16).replace('T', ' ')}${process.env.GITHUB_SHA ? ` · ${process.env.GITHUB_SHA.slice(0, 7)}` : ''}`,
+      ),
+    },
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     },

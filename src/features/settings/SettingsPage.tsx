@@ -104,6 +104,7 @@ export function SettingsPage() {
           Macro Tracker — a private, offline calorie & protein tracker for two. Add it to your home
           screen to use it like an app.
         </p>
+        <p className="mt-2 text-xs text-ink-faint">Version {__APP_VERSION__}</p>
       </Card>
 
       <ProfileFormSheet open={creating} onClose={() => setCreating(false)} profile={null} />
