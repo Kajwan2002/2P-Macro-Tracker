@@ -79,6 +79,7 @@ export class GeminiError extends Error {
 
 export function friendlyError(err: unknown): string {
   if (err instanceof GeminiError) {
+    if (err.status === 408) return 'Gemini took too long to answer. Try again — a shorter question or a smaller photo helps.'
     if (err.status === 400 && /api key/i.test(err.message)) return 'Gemini rejected the API key. Check it in the ⚙ settings.'
     if (err.status === 403) return 'The API key isn’t allowed to use this model. Check the key and model in ⚙.'
     if (err.status === 404) return 'That model name wasn’t found. Change the model in ⚙.'
@@ -100,6 +101,8 @@ interface AskOptions {
   image?: ChatImage | null
   tools: FunctionDeclaration[]
   runTool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>
+  /** aborts the whole turn (the Stop button) */
+  signal?: AbortSignal
 }
 
 const MAX_TOOL_ROUNDS = 6
@@ -121,10 +124,33 @@ function endpoint(model: string): string {
 /** Tried in this order after the model chosen in settings, if Google says it is busy or gone. */
 const FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite']
 
-/** Busy / overloaded / rate-limited / not found: worth trying another model or waiting a moment. */
-const TRY_NEXT = new Set([404, 429, 500, 502, 503, 504])
+/** Timed out / busy / overloaded / rate-limited / not found: worth trying another model or waiting a moment. */
+const TRY_NEXT = new Set([404, 408, 429, 500, 502, 503, 504])
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** One request may not hang longer than this (a stalled phone connection never ends on its own). */
+const REQUEST_TIMEOUT_MS = 45_000
+/** A whole turn (tool rounds and model fallbacks included) gives up after this. */
+const TURN_TIMEOUT_MS = 120_000
+
+/** fetch with a time limit; also stops when `outer` (the Stop button) aborts. */
+async function fetchWithTimeout(url: string, init: RequestInit, outer?: AbortSignal): Promise<Response> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(new GeminiError('Timed out', 408)), REQUEST_TIMEOUT_MS)
+  const onOuter = () => ctrl.abort(outer?.reason)
+  outer?.addEventListener('abort', onOuter)
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal })
+  } catch (err) {
+    if (outer?.aborted) throw outer.reason ?? err
+    if (ctrl.signal.aborted) throw new GeminiError('Timed out', 408)
+    throw err
+  } finally {
+    clearTimeout(timer)
+    outer?.removeEventListener('abort', onOuter)
+  }
+}
 
 /** The chosen model first, then the others (no duplicates). */
 function modelChain(): string[] {
@@ -137,18 +163,38 @@ function modelChain(): string[] {
  * the next model in `chain`, and make a second pass after a short pause before
  * giving up. Any other error (bad key, bad request…) is thrown straight away.
  */
-async function generate(body: unknown, chain: string[]): Promise<{ json: Record<string, unknown>; model: string }> {
+async function generate(
+  body: unknown,
+  chain: string[],
+  signal?: AbortSignal,
+  deadline = Date.now() + TURN_TIMEOUT_MS,
+): Promise<{ json: Record<string, unknown>; model: string }> {
   const key = getGeminiKey()
   if (!key) throw new GeminiError('No API key', 400)
   let last: GeminiError | null = null
   for (let pass = 0; pass < 2; pass++) {
     if (pass > 0) await sleep(2500)
     for (const model of chain) {
-      const res = await fetch(endpoint(model), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify(body),
-      })
+      if (Date.now() > deadline) throw new GeminiError('Timed out', 408)
+      let res: Response
+      try {
+        res = await fetchWithTimeout(
+          endpoint(model),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+            body: JSON.stringify(body),
+          },
+          signal,
+        )
+      } catch (err) {
+        // a stalled request: try the next model; anything else (offline, Stop) ends the turn
+        if (err instanceof GeminiError && err.status === 408) {
+          last = err
+          continue
+        }
+        throw err
+      }
       const json = await res.json().catch(() => ({}))
       if (res.ok) return { json, model }
       last = new GeminiError(json?.error?.message ?? res.statusText, res.status)
@@ -184,13 +230,18 @@ export async function transcribeAudio(wavBase64: string): Promise<string> {
 /** Send one user turn; runs any tool calls the model makes; returns the final reply. */
 export async function askGemini(opts: AskOptions): Promise<string> {
   if (!getGeminiKey()) throw new GeminiError('No API key', 400)
+  const deadline = Date.now() + TURN_TIMEOUT_MS
   // Once a model has answered, stay on it for the rest of this turn: its tool-call
   // parts (with their internal signatures) are echoed back to the same model.
   let usedModel: string | null = null
 
   const userParts: Part[] = [{ text: opts.text || 'Here is a photo.' }]
   if (opts.image) userParts.push({ inlineData: { mimeType: opts.image.mimeType, data: opts.image.data } })
-  const contents: Content[] = [...opts.history, { role: 'user', parts: userParts }]
+  // turns must alternate: if the last message never got an answer, join this one to it
+  const contents: Content[] = opts.history.map((c) => ({ ...c, parts: [...c.parts] }))
+  const last = contents[contents.length - 1]
+  if (last?.role === 'user') last.parts.push(...userParts)
+  else contents.push({ role: 'user', parts: userParts })
   const notes: string[] = []
   let nudged = false
 
@@ -203,6 +254,8 @@ export async function askGemini(opts: AskOptions): Promise<string> {
         generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
       },
       usedModel ? [usedModel] : modelChain(),
+      opts.signal,
+      deadline,
     )
     usedModel = model
     const json = raw as { candidates?: { content?: Content }[] }

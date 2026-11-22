@@ -53,7 +53,15 @@ function toHistory(messages: ChatMessage[]): Content[] {
     ],
   }))
   while (turns.length && turns[0].role === 'model') turns.shift()
-  return turns
+  // Gemini wants user and model turns to alternate; messages that never got an answer
+  // (a failed or stopped send) would leave several user turns in a row — merge them
+  const merged: Content[] = []
+  for (const t of turns) {
+    const prev = merged[merged.length - 1]
+    if (prev && prev.role === t.role) prev.parts = [...prev.parts, ...t.parts]
+    else merged.push({ ...t, parts: [...t.parts] })
+  }
+  return merged
 }
 
 export function ChatPage() {
@@ -65,6 +73,7 @@ export function ChatPage() {
   const [input, setInput] = useState('')
   const [image, setImage] = useState<(ChatImage & { preview: string }) | null>(null)
   const [busy, setBusy] = useState(false)
+  const turn = useRef<AbortController | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [mic, setMic] = useState<'idle' | 'recording' | 'transcribing'>('idle')
@@ -141,6 +150,8 @@ export function ChatPage() {
     setImage(null)
     setError(null)
     setBusy(true)
+    const ctrl = new AbortController()
+    turn.current = ctrl
     await addChatMessage('user', text, !!attached)
     try {
       const reply = await askGemini({
@@ -150,11 +161,13 @@ export function ChatPage() {
         image: attached,
         tools: await buildTools(),
         runTool,
+        signal: ctrl.signal,
       })
       await addChatMessage('model', reply)
     } catch (err) {
-      setError(friendlyError(err))
+      if (!ctrl.signal.aborted) setError(friendlyError(err))
     } finally {
+      turn.current = null
       setBusy(false)
     }
   }
@@ -262,8 +275,15 @@ export function ChatPage() {
               </div>
             ))}
             {busy && (
-              <div className="self-start rounded-2xl bg-surface px-3.5 py-2.5 text-sm text-ink-faint shadow-card">
+              <div className="flex items-center gap-3 self-start rounded-2xl bg-surface px-3.5 py-2.5 text-sm text-ink-faint shadow-card">
                 Thinking…
+                <button
+                  type="button"
+                  onClick={() => turn.current?.abort()}
+                  className="text-xs font-bold text-ink-soft active:opacity-70"
+                >
+                  Stop
+                </button>
               </div>
             )}
             {error && (
