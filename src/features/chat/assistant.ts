@@ -81,13 +81,12 @@ async function progressLines(p: Profile): Promise<string[]> {
   ]
 }
 
-/** "; vs burn: −3,200 kcal" — eaten minus burn × tracked days, as on the Today card. */
+/** "; vs burn for the whole week: −6,300" — eaten minus burn × 7, as on the Today card. */
 function weekBalance(week: { byDay: Map<string, number>; burn: number | null }, p: Profile): string {
   const burn = week.burn ?? p.maintenanceKcal ?? null
-  const days = [...week.byDay.values()].filter((k) => k > 0)
-  if (!burn || days.length === 0) return ''
-  const bal = Math.round(days.reduce((s, k) => s + k, 0) - burn * days.length)
-  return `; real balance vs burn (${burn}/day × ${days.length} tracked days): ${bal > 0 ? '+' : ''}${fmtKcal(bal)} kcal (${bal > 0 ? 'surplus' : 'deficit'})`
+  if (!burn) return ''
+  const bal = Math.round([...week.byDay.values()].reduce((s, k) => s + k, 0) - burn * 7)
+  return `; vs burn for the whole week (${burn}/day × 7 = ${burn * 7}): ${bal > 0 ? '+' : ''}${fmtKcal(bal)} kcal (${bal <= 0 ? `room to eat ${fmtKcal(-bal)} more this week and still break even` : 'already in a surplus for the week'})`
 }
 
 function coachSummary(p: Profile, coach: CoachState): string {
